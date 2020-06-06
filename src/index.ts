@@ -3,55 +3,102 @@ import * as ts from 'typescript';
 export const moduleName = './styledx';
 export const styledxName = 'styledx';
 
+type StaticStyledComponent = {
+  componentName: string;
+  elementName: string;
+  classNames: string[];
+};
+
+type StaticStyledComponents = { [name: string]: StaticStyledComponent };
+
 export default function transformer(program: ts.Program): ts.TransformerFactory<ts.SourceFile> {
-  return (context: ts.TransformationContext) => (file: ts.SourceFile) => visitNodeAndChildren(file, program, context);
+  return (context: ts.TransformationContext) => (file: ts.SourceFile) => {
+    const staticStyledComponent: StaticStyledComponents = {};
+    const firstPassTransformedFile = visitNodeAndChildren(file, program, context, staticStyledComponent);
+    return visitNodeAndChildren(firstPassTransformedFile, program, context, staticStyledComponent);
+  };
 }
 
 function visitNodeAndChildren(
   node: ts.SourceFile,
   program: ts.Program,
   context: ts.TransformationContext,
+  staticStyledComponent: StaticStyledComponents,
 ): ts.SourceFile;
 function visitNodeAndChildren(
   node: ts.Node,
   program: ts.Program,
   context: ts.TransformationContext,
+  staticStyledComponent: StaticStyledComponents,
 ): ts.Node | ts.Node[];
 function visitNodeAndChildren(
   node: ts.Node,
   program: ts.Program,
   context: ts.TransformationContext,
+  staticStyledComponent: StaticStyledComponents,
 ): ts.Node | ts.Node[] {
   return ts.visitEachChild(
-    visitNode(node, program),
-    (childNode) => visitNodeAndChildren(childNode, program, context),
+    visitNode(node, program, staticStyledComponent),
+    (childNode) => visitNodeAndChildren(childNode, program, context, staticStyledComponent),
     context,
   );
 }
 
-function visitNode(node: ts.Node, program: ts.Program): any /* TODO */ {
+function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: StaticStyledComponents): any /* TODO */ {
   const typeChecker = program.getTypeChecker();
   if (ts.isImportDeclaration(node)) {
     if ((node.moduleSpecifier as ts.StringLiteral).text === moduleName) {
+      // TODO: Should only do this if the only thing imported is the static/styledx import
       return [];
     }
   }
-  if (ts.isCallExpression(node)) {
-    if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)) {
-      if (node.expression.expression.escapedText === styledxName) {
-        const htmlElementName = node.expression.name.escapedText.toString();
-        const styleObject = node.arguments[0];
-        if (node.arguments.length === 1 && !!styleObject && ts.isObjectLiteralExpression(styleObject)) {
-          const classNames = styleObject.properties.map(getClassName);
-          return ts.createJsxSelfClosingElement(
-            ts.createIdentifier(htmlElementName),
-            undefined,
-            ts.createJsxAttributes([
-              ts.createJsxAttribute(ts.createIdentifier('className'), ts.createStringLiteral(classNames.join(' '))),
-            ]),
-          );
+  if (ts.isVariableStatement(node)) {
+    if (node.declarationList.declarations.length === 1) {
+      const declaration = node.declarationList.declarations[0];
+      if (
+        declaration.initializer &&
+        ts.isCallExpression(declaration.initializer) &&
+        ts.isIdentifier(declaration.name)
+      ) {
+        const callExpr = declaration.initializer;
+        if (ts.isPropertyAccessExpression(callExpr.expression) && ts.isIdentifier(callExpr.expression.expression)) {
+          if (callExpr.expression.expression.escapedText === styledxName) {
+            const componentName = declaration.name.escapedText.toString();
+            const elementName = callExpr.expression.name.escapedText.toString();
+            const styleObject = callExpr.arguments[0];
+            if (callExpr.arguments.length === 1 && !!styleObject && ts.isObjectLiteralExpression(styleObject)) {
+              const classNames = styleObject.properties.map(getClassName);
+              staticStyledComponent[componentName] = {
+                classNames,
+                componentName,
+                elementName,
+              };
+              return [];
+            }
+          }
         }
       }
+    }
+  }
+  if (ts.isJsxOpeningElement(node) && ts.isIdentifier(node.tagName)) {
+    const jsxTagName = node.tagName.escapedText.toString();
+    if (staticStyledComponent[jsxTagName]) {
+      return ts.createJsxOpeningElement(
+        ts.createIdentifier(staticStyledComponent[jsxTagName].elementName),
+        undefined,
+        ts.createJsxAttributes([
+          ts.createJsxAttribute(
+            ts.createIdentifier('className'),
+            ts.createStringLiteral(staticStyledComponent[jsxTagName].classNames.join(' ')),
+          ),
+        ]),
+      );
+    }
+  }
+  if (ts.isJsxClosingElement(node) && ts.isIdentifier(node.tagName)) {
+    const jsxTagName = node.tagName.escapedText.toString();
+    if (staticStyledComponent[jsxTagName]) {
+      return ts.createJsxClosingElement(ts.createIdentifier(staticStyledComponent[jsxTagName].elementName));
     }
   }
   return node;

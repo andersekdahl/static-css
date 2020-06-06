@@ -15,6 +15,7 @@ export const styledx = {
   const compilerOptions: ts.CompilerOptions = {
     noEmitOnError: true,
     target: ts.ScriptTarget.Latest,
+    jsx: ts.JsxEmit.Preserve,
   };
 
   const compilerHost: ts.CompilerHost = {

@@ -4,18 +4,25 @@ type Code = { [fileName: string]: string };
 
 test('can extract simple component', () => {
   const code = {
-    'file1.ts': `
+    'file1.tsx': `
 import { styledx } from './styledx';
-const Field = styledx.div({
-  width: '100%',
-  height: '100%',
+
+function MyComponent(props: {}) {
+    return <div><Styled>hello</Styled></div>;
+}
+
+const Styled = styledx.div({
+    width: '100%',
+    height: '100%',
 });
 `,
   };
 
   const expected = {
-    'file1.js': `
-const Field = <div className="a a"/>;
+    'file1.jsx': `
+function MyComponent(props) {
+    return <div><div className="a a">hello</div></div>;
+}
 `,
   };
 
