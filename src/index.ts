@@ -80,6 +80,36 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
       }
     }
   }
+
+  if (
+    ts.isJsxSelfClosingElement(node) &&
+    ts.isPropertyAccessExpression(node.tagName) &&
+    ts.isIdentifier(node.tagName.expression) &&
+    node.tagName.expression.escapedText.toString() === styledxName
+  ) {
+    const elementName = node.tagName.name.escapedText.toString().toLowerCase();
+    const cssJsxAttr = node.attributes.properties.find(
+      (p) => p.name && ts.isIdentifier(p.name) && p.name.escapedText.toString() === 'css',
+    );
+    if (
+      cssJsxAttr &&
+      ts.isJsxAttribute(cssJsxAttr) &&
+      cssJsxAttr.initializer &&
+      ts.isJsxExpression(cssJsxAttr.initializer) &&
+      cssJsxAttr.initializer.expression &&
+      ts.isObjectLiteralExpression(cssJsxAttr.initializer.expression)
+    ) {
+      const classNames = cssJsxAttr.initializer.expression.properties.map(getClassName);
+      return ts.createJsxSelfClosingElement(
+        ts.createIdentifier(elementName),
+        undefined,
+        ts.createJsxAttributes([
+          ts.createJsxAttribute(ts.createIdentifier('className'), ts.createStringLiteral(classNames.join(' '))),
+        ]),
+      );
+    }
+  }
+
   if (
     ts.isJsxOpeningElement(node) &&
     ts.isPropertyAccessExpression(node.tagName) &&
@@ -108,6 +138,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
       );
     }
   }
+
   if (
     ts.isJsxClosingElement(node) &&
     ts.isPropertyAccessExpression(node.tagName) &&
@@ -117,6 +148,23 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
     const elementName = node.tagName.name.escapedText.toString().toLowerCase();
     return ts.createJsxClosingElement(ts.createIdentifier(elementName));
   }
+
+  if (ts.isJsxSelfClosingElement(node) && ts.isIdentifier(node.tagName)) {
+    const jsxTagName = node.tagName.escapedText.toString();
+    if (staticStyledComponent[jsxTagName]) {
+      return ts.createJsxSelfClosingElement(
+        ts.createIdentifier(staticStyledComponent[jsxTagName].elementName),
+        undefined,
+        ts.createJsxAttributes([
+          ts.createJsxAttribute(
+            ts.createIdentifier('className'),
+            ts.createStringLiteral(staticStyledComponent[jsxTagName].classNames.join(' ')),
+          ),
+        ]),
+      );
+    }
+  }
+
   if (ts.isJsxOpeningElement(node) && ts.isIdentifier(node.tagName)) {
     const jsxTagName = node.tagName.escapedText.toString();
     if (staticStyledComponent[jsxTagName]) {

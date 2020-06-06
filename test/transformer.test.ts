@@ -8,12 +8,26 @@ test('can extract simple component', () => {
 import { styledx } from './styledx';
 
 function MyComponent(props: {}) {
-    return <div><Styled>hello</Styled><styledx.Div css={{ width: '100%', height: '100%' }}>hey!</styledx.Div></div>;
+    return (<div>
+                <Styled>
+                    hello
+                </Styled>
+                <styledx.Div css={{ backgroundColor: 'black' }} />
+                <styledx.Div css={{ width: '100%', height: '100%' }}>
+                    hey!
+                </styledx.Div>
+                <StyledSelfClosing />
+            </div>);
 }
 
 const Styled = styledx.div({
     width: '100%',
     height: '100%',
+});
+
+const StyledSelfClosing = styledx.div({
+  height: '100%',
+  width: '100%',
 });
 `,
   };
@@ -21,7 +35,16 @@ const Styled = styledx.div({
   const expected = {
     'file1.jsx': `
 function MyComponent(props) {
-    return <div><div className="a a">hello</div><div className="a a">hey!</div></div>;
+    return (<div>
+                <div className="a a">
+                    hello
+                </div>
+                <div className="a"/>
+                <div className="a a">
+                    hey!
+                </div>
+                <div className="a a"/>
+            </div>);
 }
 `,
   };
