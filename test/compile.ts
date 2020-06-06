@@ -7,6 +7,7 @@ export default function compile(files: { [fileName: string]: string }) {
   files['styledx.ts'] = `
 export const styledx = {
   div: (args: any) => null,
+  Div: (props: any) => null,
 }
 `;
 
