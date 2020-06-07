@@ -1,4 +1,5 @@
 import * as ts from 'typescript';
+import { evaluate } from './evaluator';
 
 export const moduleName = './styledx';
 export const styledxName = 'styledx';
@@ -6,7 +7,13 @@ export const styledxName = 'styledx';
 type StaticStyledComponent = {
   componentName: string;
   elementName: string;
+  cssData: CssData;
+  parent?: StaticStyledComponent;
+};
+
+type CssData = {
   classNames: string[];
+  properties: ReadonlyArray<ts.ObjectLiteralElementLike>;
 };
 
 type StaticStyledComponents = { [name: string]: StaticStyledComponent };
@@ -61,17 +68,37 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
         ts.isIdentifier(declaration.name)
       ) {
         const callExpr = declaration.initializer;
+        const componentName = declaration.name.escapedText.toString();
+
         if (ts.isPropertyAccessExpression(callExpr.expression) && ts.isIdentifier(callExpr.expression.expression)) {
           if (callExpr.expression.expression.escapedText === styledxName) {
-            const componentName = declaration.name.escapedText.toString();
             const elementName = callExpr.expression.name.escapedText.toString();
             const styleObject = callExpr.arguments[0];
             if (callExpr.arguments.length === 1 && !!styleObject && ts.isObjectLiteralExpression(styleObject)) {
-              const classNames = styleObject.properties.map(getClassName);
               staticStyledComponent[componentName] = {
-                classNames,
                 componentName,
                 elementName,
+                cssData: getCssData(styleObject.properties, typeChecker),
+              };
+              return [];
+            }
+          }
+        }
+        if (
+          ts.isIdentifier(callExpr.expression) &&
+          callExpr.expression.escapedText.toString() === styledxName &&
+          callExpr.arguments.length === 2
+        ) {
+          const parentStyledComponent = callExpr.arguments[0];
+          const styleObject = callExpr.arguments[1];
+
+          if (ts.isIdentifier(parentStyledComponent) && ts.isObjectLiteralExpression(styleObject)) {
+            const parentName = parentStyledComponent.escapedText.toString();
+            if (staticStyledComponent[parentName]) {
+              staticStyledComponent[componentName] = {
+                componentName,
+                elementName: staticStyledComponent[parentName].elementName,
+                cssData: getCssData(styleObject.properties, typeChecker, staticStyledComponent[parentName]),
               };
               return [];
             }
@@ -99,7 +126,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
       cssJsxAttr.initializer.expression &&
       ts.isObjectLiteralExpression(cssJsxAttr.initializer.expression)
     ) {
-      const classNames = cssJsxAttr.initializer.expression.properties.map(getClassName);
+      const classNames = getCssData(cssJsxAttr.initializer.expression.properties, typeChecker).classNames;
       return ts.createJsxSelfClosingElement(
         ts.createIdentifier(elementName),
         undefined,
@@ -128,7 +155,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
       cssJsxAttr.initializer.expression &&
       ts.isObjectLiteralExpression(cssJsxAttr.initializer.expression)
     ) {
-      const classNames = cssJsxAttr.initializer.expression.properties.map(getClassName);
+      const classNames = getCssData(cssJsxAttr.initializer.expression.properties, typeChecker).classNames;
       return ts.createJsxOpeningElement(
         ts.createIdentifier(elementName),
         undefined,
@@ -158,7 +185,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
         ts.createJsxAttributes([
           ts.createJsxAttribute(
             ts.createIdentifier('className'),
-            ts.createStringLiteral(staticStyledComponent[jsxTagName].classNames.join(' ')),
+            ts.createStringLiteral(staticStyledComponent[jsxTagName].cssData.classNames.join(' ')),
           ),
         ]),
       );
@@ -174,7 +201,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
         ts.createJsxAttributes([
           ts.createJsxAttribute(
             ts.createIdentifier('className'),
-            ts.createStringLiteral(staticStyledComponent[jsxTagName].classNames.join(' ')),
+            ts.createStringLiteral(staticStyledComponent[jsxTagName].cssData.classNames.join(' ')),
           ),
         ]),
       );
@@ -189,6 +216,60 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
   return node;
 }
 
-function getClassName(rule: ts.ObjectLiteralElementLike) {
-  return 'a';
+export const generatedClassNames: { [cssRule: string]: string } = {};
+
+function getCssData(
+  properties: ReadonlyArray<ts.ObjectLiteralElementLike>,
+  typeChecker: ts.TypeChecker,
+  parentComponent?: StaticStyledComponent,
+) {
+  const classNames: string[] = [];
+  const cssRules = {};
+
+  const props = properties.slice();
+
+  if (parentComponent) {
+    props.push(...parentComponent.cssData.properties);
+  }
+
+  for (const property of props) {
+    let propertyName = '';
+    if (property.name && ts.isIdentifier(property.name)) {
+      propertyName = property.name.text;
+    }
+    if (property.name && ts.isComputedPropertyName(property.name)) {
+      const value = evaluate(property.name.expression, typeChecker);
+      if (typeof value !== 'string') {
+        throw new Error();
+      }
+      propertyName = value;
+    }
+    let value = '';
+    if (ts.isPropertyAssignment(property)) {
+      const initValue = evaluate(property.initializer, typeChecker);
+      if (typeof initValue !== 'string') {
+        throw new Error();
+      }
+      value = initValue;
+    }
+    if (ts.isShorthandPropertyAssignment(property)) {
+      const initValue = evaluate(property.name, typeChecker);
+      if (typeof initValue !== 'string') {
+        throw new Error();
+      }
+      value = initValue;
+    }
+
+    const css = `${propertyName}: '${value}'`;
+    if (!(css in generatedClassNames)) {
+      generatedClassNames[css] = 'a' + Object.keys(generatedClassNames).length;
+    }
+    classNames.push(generatedClassNames[css]);
+  }
+
+  return {
+    classNames,
+    cssRules,
+    properties,
+  };
 }

@@ -1,14 +1,13 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as ts from 'typescript';
-import transformer, { styledxName } from '../src/';
+import transformer, { styledxName, generatedClassNames } from '../src/';
 
 export default function compile(files: { [fileName: string]: string }) {
   files['styledx.ts'] = `
-export const styledx = {
-  div: (args: any) => null,
-  Div: (props: any) => null,
-}
+export const styledx = (...args: any[]) => null;
+styledx.div = (args: any) => null;
+styledx.Div = (props: any) => null;
 `;
 
   const outputs: { [fileName: string]: string } = {};
@@ -77,8 +76,13 @@ export const styledx = {
   const { emitSkipped, diagnostics } = program.emit(undefined, writeFileCallback, undefined, false, transformers);
 
   if (emitSkipped) {
+    console.log(diagnostics);
     throw new Error(diagnostics.map((diagnostic) => diagnostic.messageText).join('\n'));
   }
+
+  outputs['style.css'] = Object.keys(generatedClassNames)
+    .map((c) => `.${generatedClassNames[c]} { ${c} }`)
+    .join('\n');
 
   return outputs;
 }
