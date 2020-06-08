@@ -13,7 +13,7 @@ type StaticStyledComponent = {
 
 type CssData = {
   classNames: string[];
-  properties: ReadonlyArray<ts.ObjectLiteralElementLike>;
+  styleObject: ts.ObjectLiteralExpression;
 };
 
 type StaticStyledComponents = { [name: string]: StaticStyledComponent };
@@ -78,7 +78,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
               staticStyledComponent[componentName] = {
                 componentName,
                 elementName,
-                cssData: getCssData(styleObject.properties, typeChecker),
+                cssData: getCssData(styleObject, typeChecker),
               };
               return [];
             }
@@ -98,7 +98,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
               staticStyledComponent[componentName] = {
                 componentName,
                 elementName: staticStyledComponent[parentName].elementName,
-                cssData: getCssData(styleObject.properties, typeChecker, staticStyledComponent[parentName]),
+                cssData: getCssData(styleObject, typeChecker, staticStyledComponent[parentName]),
               };
               return [];
             }
@@ -126,7 +126,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
       cssJsxAttr.initializer.expression &&
       ts.isObjectLiteralExpression(cssJsxAttr.initializer.expression)
     ) {
-      const classNames = getCssData(cssJsxAttr.initializer.expression.properties, typeChecker).classNames;
+      const classNames = getCssData(cssJsxAttr.initializer.expression, typeChecker).classNames;
       return ts.createJsxSelfClosingElement(
         ts.createIdentifier(elementName),
         undefined,
@@ -155,7 +155,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
       cssJsxAttr.initializer.expression &&
       ts.isObjectLiteralExpression(cssJsxAttr.initializer.expression)
     ) {
-      const classNames = getCssData(cssJsxAttr.initializer.expression.properties, typeChecker).classNames;
+      const classNames = getCssData(cssJsxAttr.initializer.expression, typeChecker).classNames;
       return ts.createJsxOpeningElement(
         ts.createIdentifier(elementName),
         undefined,
@@ -219,48 +219,26 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
 export const generatedClassNames: { [cssRule: string]: string } = {};
 
 function getCssData(
-  properties: ReadonlyArray<ts.ObjectLiteralElementLike>,
+  styleObject: ts.ObjectLiteralExpression,
   typeChecker: ts.TypeChecker,
   parentComponent?: StaticStyledComponent,
 ) {
   const classNames: string[] = [];
   const cssRules = {};
 
-  const props = properties.slice();
+  const obj = evaluate(styleObject, typeChecker, {}) as Object;
 
   if (parentComponent) {
-    props.push(...parentComponent.cssData.properties);
+    const parentObj = evaluate(parentComponent.cssData.styleObject, typeChecker, {}) as Object;
+    for (const key of Object.keys(parentObj)) {
+      if (!(key in obj)) {
+        obj[key] = parentObj[key];
+      }
+    }
   }
 
-  for (const property of props) {
-    let propertyName = '';
-    if (property.name && ts.isIdentifier(property.name)) {
-      propertyName = property.name.text;
-    }
-    if (property.name && ts.isComputedPropertyName(property.name)) {
-      const value = evaluate(property.name.expression, typeChecker);
-      if (typeof value !== 'string') {
-        throw new Error();
-      }
-      propertyName = value;
-    }
-    let value = '';
-    if (ts.isPropertyAssignment(property)) {
-      const initValue = evaluate(property.initializer, typeChecker);
-      if (typeof initValue !== 'string') {
-        throw new Error();
-      }
-      value = initValue;
-    }
-    if (ts.isShorthandPropertyAssignment(property)) {
-      const initValue = evaluate(property.name, typeChecker);
-      if (typeof initValue !== 'string') {
-        throw new Error();
-      }
-      value = initValue;
-    }
-
-    const css = `${propertyName}: '${value}'`;
+  for (const key of Object.keys(obj)) {
+    const css = `${key}: '${obj[key]}'`;
     if (!(css in generatedClassNames)) {
       generatedClassNames[css] = 'a' + Object.keys(generatedClassNames).length;
     }
@@ -270,6 +248,6 @@ function getCssData(
   return {
     classNames,
     cssRules,
-    properties,
+    styleObject,
   };
 }

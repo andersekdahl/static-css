@@ -13,7 +13,9 @@ export { blue as blueColor };
 import { styledx } from './styledx';
 import { black, blueColor } from './colors';
 
-const height = '100%';
+const calcHeight = (base: number) => base * 10;
+
+const height = calcHeight(10) + '%';
 const myWidth = '10' + '0%';
 
 function MyComponent(props: {}) {
@@ -55,7 +57,8 @@ export { blue as blueColor };
 `,
     'file1.jsx': `
 import { black, blueColor } from './colors';
-const height = '100%';
+const calcHeight = (base) => base * 10;
+const height = calcHeight(10) + '%';
 const myWidth = '10' + '0%';
 function MyComponent(props) {
     return (<div>

@@ -1,92 +1,142 @@
 import * as ts from 'typescript';
 
-export function evaluate(expr: ts.Expression, typeChecker: ts.TypeChecker): any {
+export function evaluate(expr: ts.Expression, typeChecker: ts.TypeChecker, scope: { [name: string]: any }): any {
   if (ts.isBinaryExpression(expr)) {
+    const left = evaluate(expr.left, typeChecker, scope);
+    const right = evaluate(expr.right, typeChecker, scope);
     if (expr.operatorToken.kind == ts.SyntaxKind.PlusToken) {
-      return evaluate(expr.left, typeChecker) + evaluate(expr.right, typeChecker);
+      return left + right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.MinusToken) {
-      return evaluate(expr.left, typeChecker) - evaluate(expr.right, typeChecker);
+      return left - right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.AsteriskToken) {
-      return evaluate(expr.left, typeChecker) * evaluate(expr.right, typeChecker);
+      return left * right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.SlashToken) {
-      return evaluate(expr.left, typeChecker) / evaluate(expr.right, typeChecker);
+      return left / right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.EqualsEqualsEqualsToken) {
-      return evaluate(expr.left, typeChecker) === evaluate(expr.right, typeChecker);
+      return left === right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.EqualsEqualsToken) {
-      return evaluate(expr.left, typeChecker) == evaluate(expr.right, typeChecker);
+      return left == right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.ExclamationEqualsEqualsToken) {
-      return evaluate(expr.left, typeChecker) !== evaluate(expr.right, typeChecker);
+      return left !== right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.ExclamationEqualsToken) {
-      return evaluate(expr.left, typeChecker) != evaluate(expr.right, typeChecker);
+      return left != right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.GreaterThanToken) {
-      return evaluate(expr.left, typeChecker) > evaluate(expr.right, typeChecker);
+      return left > right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.GreaterThanEqualsToken) {
-      return evaluate(expr.left, typeChecker) >= evaluate(expr.right, typeChecker);
+      return left >= right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.LessThanToken) {
-      return evaluate(expr.left, typeChecker) < evaluate(expr.right, typeChecker);
+      return left < right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.LessThanEqualsToken) {
-      return evaluate(expr.left, typeChecker) <= evaluate(expr.right, typeChecker);
+      return left <= right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.BarBarToken) {
-      return evaluate(expr.left, typeChecker) || evaluate(expr.right, typeChecker);
+      return left || right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.AmpersandAmpersandToken) {
-      return evaluate(expr.left, typeChecker) && evaluate(expr.right, typeChecker);
+      return left && right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.QuestionQuestionToken) {
-      const left = evaluate(expr.left, typeChecker);
       if (left !== undefined && left !== null) {
         return left;
       }
-      return evaluate(expr.right, typeChecker);
+      return right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.InKeyword) {
-      const right = evaluate(expr.right, typeChecker);
-      if (!right) return false;
+      if (!right) {
+        return false;
+      }
       if (typeof right === 'object' && right instanceof Array) {
-        return right.indexOf(evaluate(expr.left, typeChecker)) !== -1;
+        return right.indexOf(left) !== -1;
       }
       return false;
     }
   } else if (ts.isConditionalExpression(expr)) {
-    return evaluate(expr.condition, typeChecker)
-      ? evaluate(expr.whenTrue, typeChecker)
-      : evaluate(expr.whenFalse, typeChecker);
+    return evaluate(expr.condition, typeChecker, scope)
+      ? evaluate(expr.whenTrue, typeChecker, scope)
+      : evaluate(expr.whenFalse, typeChecker, scope);
   } else if (ts.isPrefixUnaryExpression(expr)) {
     if (expr.operator == ts.SyntaxKind.PlusPlusToken || expr.operator == ts.SyntaxKind.MinusMinusToken) {
       throw new Error('-- or ++ expressions are not supported');
     }
+    const value = evaluate(expr.operand, typeChecker, scope);
     if (expr.operator == ts.SyntaxKind.PlusToken) {
-      return +evaluate(expr.operand, typeChecker);
+      return +value;
     }
     if (expr.operator == ts.SyntaxKind.MinusToken) {
-      return -evaluate(expr.operand, typeChecker);
+      return -value;
     }
     if (expr.operator == ts.SyntaxKind.TildeToken) {
-      return ~evaluate(expr.operand, typeChecker);
+      return ~value;
     }
     if (expr.operator == ts.SyntaxKind.ExclamationToken) {
-      return !evaluate(expr.operand, typeChecker);
+      return !value;
     }
   } else if (ts.isPropertyAccessExpression(expr)) {
-    const obj = evaluate(expr.expression, typeChecker);
+    const obj = evaluate(expr.expression, typeChecker, scope);
     if (!obj && expr.questionDotToken) {
       return undefined;
     }
     const property = expr.name.escapedText.toString();
     return obj[property];
   } else if (ts.isElementAccessExpression(expr)) {
-    const obj = evaluate(expr.expression, typeChecker);
+    const obj = evaluate(expr.expression, typeChecker, scope);
     if (!obj && expr.questionDotToken) {
       return undefined;
     }
-    const property = evaluate(expr.argumentExpression, typeChecker);
+    const property = evaluate(expr.argumentExpression, typeChecker, scope);
     return obj[property];
   } else if (ts.isTaggedTemplateExpression(expr)) {
     throw new Error('Tagged templates are not supported');
   } else if (ts.isTemplateExpression(expr)) {
     let s = expr.head.text;
     for (const span of expr.templateSpans) {
-      s += evaluate(span.expression, typeChecker);
+      s += evaluate(span.expression, typeChecker, scope);
       s += span.literal.text;
     }
+  } else if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) {
+    let bodyExpression: ts.Expression | undefined;
+    if (ts.isBlock(expr.body)) {
+      if (expr.body.statements.length > 1) {
+        throw new Error('Cannot evaluate functions with more than one statement');
+      }
+      const statement = expr.body.statements[0];
+      if (ts.isReturnStatement(statement)) {
+        bodyExpression = statement.expression;
+      } else {
+        throw new Error('Cannot evaluate functions where the single statement is not a return statement');
+      }
+    } else {
+      bodyExpression = expr.body;
+    }
+    const parameters: string[] = [];
+    for (const parameter of expr.parameters) {
+      if (ts.isIdentifier(parameter.name)) {
+        parameters.push(parameter.name.text);
+      } else {
+        throw new Error('Static expressions does not support spread');
+      }
+    }
+
+    return (...args: any[]) => {
+      if (bodyExpression === undefined) {
+        return undefined;
+      }
+
+      const parameterScope: { [argName: string]: any } = { ...scope };
+      for (let i = 0; i < parameters.length; i++) {
+        parameterScope[parameters[i]] = args[i];
+      }
+      return evaluate(bodyExpression, typeChecker, parameterScope);
+    };
+  } else if (ts.isCallExpression(expr)) {
+    const callable = evaluate(expr.expression, typeChecker, scope) as Function;
+    const args = [];
+    for (const arg of expr.arguments) {
+      const value = evaluate(arg, typeChecker, scope);
+      args.push(value);
+    }
+    return callable.apply(null, args);
   } else if (ts.isIdentifier(expr)) {
+    if (expr.text in scope) {
+      return scope[expr.text];
+    }
+
     const type = typeChecker.getTypeAtLocation(expr);
     if (type.isStringLiteral()) {
       return type.value;
@@ -121,7 +171,7 @@ export function evaluate(expr: ts.Expression, typeChecker: ts.TypeChecker): any 
       if (!symbol.valueDeclaration.initializer) {
         throw new Error(`Unable to resolve identifier '${expr.text}'`);
       }
-      return evaluate(symbol.valueDeclaration.initializer, typeChecker);
+      return evaluate(symbol.valueDeclaration.initializer, typeChecker, scope);
     }
     throw new Error('Not implemented:' + expr.text);
   } else if (ts.isNoSubstitutionTemplateLiteral(expr)) {
@@ -134,6 +184,34 @@ export function evaluate(expr: ts.Expression, typeChecker: ts.TypeChecker): any 
     return true;
   } else if (expr.kind == ts.SyntaxKind.FalseKeyword) {
     return false;
+  } else if (ts.isObjectLiteralExpression(expr)) {
+    const obj: Object = {};
+    for (const property of expr.properties) {
+      let propertyName = '';
+      if (property.name && ts.isIdentifier(property.name)) {
+        propertyName = property.name.text;
+      }
+      if (property.name && ts.isComputedPropertyName(property.name)) {
+        const value = evaluate(property.name.expression, typeChecker, scope);
+        propertyName = value.toString();
+      }
+      let value: any = undefined;
+      if (ts.isPropertyAssignment(property)) {
+        value = evaluate(property.initializer, typeChecker, scope);
+      }
+      if (ts.isShorthandPropertyAssignment(property)) {
+        value = evaluate(property.name, typeChecker, scope);
+      }
+
+      obj[propertyName] = value;
+    }
+    return obj;
+  } else if (ts.isArrayLiteralExpression(expr)) {
+    const array: any[] = [];
+    for (const element of expr.elements) {
+      array.push(evaluate(element, typeChecker, scope));
+    }
+    return array;
   }
   throw new Error('Unable to evaluate expression, unsupported expression token kind: ' + expr.kind);
 }
