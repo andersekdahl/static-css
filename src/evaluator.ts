@@ -1,6 +1,10 @@
 import * as ts from 'typescript';
 
-export function evaluate(expr: ts.Expression, typeChecker: ts.TypeChecker, scope: { [name: string]: any }): any {
+export function evaluate(
+  expr: ts.Expression | ts.FunctionDeclaration | ts.EnumDeclaration,
+  typeChecker: ts.TypeChecker,
+  scope: { [name: string]: any },
+): any {
   if (ts.isBinaryExpression(expr)) {
     const left = evaluate(expr.left, typeChecker, scope);
     const right = evaluate(expr.right, typeChecker, scope);
@@ -46,6 +50,8 @@ export function evaluate(expr: ts.Expression, typeChecker: ts.TypeChecker, scope
       }
       return false;
     }
+  } else if (ts.isParenthesizedExpression(expr)) {
+    return evaluate(expr.expression, typeChecker, scope);
   } else if (ts.isConditionalExpression(expr)) {
     return evaluate(expr.condition, typeChecker, scope)
       ? evaluate(expr.whenTrue, typeChecker, scope)
@@ -89,20 +95,22 @@ export function evaluate(expr: ts.Expression, typeChecker: ts.TypeChecker, scope
       s += evaluate(span.expression, typeChecker, scope);
       s += span.literal.text;
     }
-  } else if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) {
+  } else if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr) || ts.isFunctionDeclaration(expr)) {
     let bodyExpression: ts.Expression | undefined;
-    if (ts.isBlock(expr.body)) {
-      if (expr.body.statements.length > 1) {
-        throw new Error('Cannot evaluate functions with more than one statement');
-      }
-      const statement = expr.body.statements[0];
-      if (ts.isReturnStatement(statement)) {
-        bodyExpression = statement.expression;
+    if (expr.body) {
+      if (ts.isBlock(expr.body)) {
+        if (expr.body.statements.length > 1) {
+          throw new Error('Cannot evaluate functions with more than one statement');
+        }
+        const statement = expr.body.statements[0];
+        if (ts.isReturnStatement(statement)) {
+          bodyExpression = statement.expression;
+        } else {
+          throw new Error('Cannot evaluate functions where the single statement is not a return statement');
+        }
       } else {
-        throw new Error('Cannot evaluate functions where the single statement is not a return statement');
+        bodyExpression = expr.body;
       }
-    } else {
-      bodyExpression = expr.body;
     }
     const parameters: string[] = [];
     for (const parameter of expr.parameters) {
@@ -173,6 +181,12 @@ export function evaluate(expr: ts.Expression, typeChecker: ts.TypeChecker, scope
       }
       return evaluate(symbol.valueDeclaration.initializer, typeChecker, scope);
     }
+    if (ts.isFunctionDeclaration(symbol.valueDeclaration)) {
+      return evaluate(symbol.valueDeclaration, typeChecker, scope);
+    }
+    if (ts.isEnumDeclaration(symbol.valueDeclaration)) {
+      return evaluate(symbol.valueDeclaration, typeChecker, scope);
+    }
     throw new Error('Not implemented:' + expr.text);
   } else if (ts.isNoSubstitutionTemplateLiteral(expr)) {
     return expr.text;
@@ -212,6 +226,29 @@ export function evaluate(expr: ts.Expression, typeChecker: ts.TypeChecker, scope
       array.push(evaluate(element, typeChecker, scope));
     }
     return array;
+  } else if (ts.isEnumDeclaration(expr)) {
+    const enm: Object = {};
+    let i = 0;
+    for (const member of expr.members) {
+      let memberName: string;
+      if (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name) || ts.isNumericLiteral(member.name)) {
+        memberName = member.name.text;
+      } else if (ts.isComputedPropertyName(member.name)) {
+        const value = evaluate(member.name.expression, typeChecker, scope);
+        memberName = value.toString();
+      } else {
+        throw new Error('Unsupported enum declaration');
+      }
+      if (!member.initializer) {
+        enm[memberName] = i;
+        enm[i] = memberName;
+      } else {
+        const value = evaluate(member.initializer, typeChecker, scope);
+        enm[memberName] = value;
+      }
+      i++;
+    }
+    return enm;
   }
   throw new Error('Unable to evaluate expression, unsupported expression token kind: ' + expr.kind);
 }

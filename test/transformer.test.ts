@@ -4,14 +4,24 @@ type Code = { [fileName: string]: string };
 
 test('can extract simple component', () => {
   const code = {
-    'colors.ts': `
+    'shared.ts': `
 export const black = '#' + '000';
 const blue = 'blue';
 export { blue as blueColor };
+
+export enum Unit {
+  Px,
+  Em,
+  Rem,
+}
+
+export function pixelsToUnit(value: number, unit: Unit) {
+  return unit === Unit.Px ? value + 'px' : value + (unit === Unit.Rem ? 'rem' : 'em');
+}
 `,
     'file1.tsx': `
 import { styledx } from './styledx';
-import { black, blueColor } from './colors';
+import { black, blueColor, pixelsToUnit, Unit } from './shared';
 
 const calcHeight = (base: number) => base * 10;
 
@@ -23,7 +33,7 @@ function MyComponent(props: {}) {
                 <Styled>
                     hello
                 </Styled>
-                <styledx.Div css={{ backgroundColor: black }} />
+                <styledx.Div css={{ backgroundColor: black, lineHeight: pixelsToUnit(10, Unit.Em) }} />
                 <styledx.Div css={{ width: '100%', height: '100%' }}>
                     hey!
                 </styledx.Div>
@@ -50,35 +60,45 @@ const StyledSelfClosing = styledx.div({
   };
 
   const expected = {
-    'colors.js': `
+    'shared.js': `
 export const black = '#' + '000';
 const blue = 'blue';
 export { blue as blueColor };
+export var Unit;
+(function (Unit) {
+    Unit[Unit["Px"] = 0] = "Px";
+    Unit[Unit["Em"] = 1] = "Em";
+    Unit[Unit["Rem"] = 2] = "Rem";
+})(Unit || (Unit = {}));
+export function pixelsToUnit(value, unit) {
+    return unit === Unit.Px ? value + 'px' : value + (unit === Unit.Rem ? 'rem' : 'em');
+}
 `,
     'file1.jsx': `
-import { black, blueColor } from './colors';
+import { black, blueColor, pixelsToUnit, Unit } from './shared';
 const calcHeight = (base) => base * 10;
 const height = calcHeight(10) + '%';
 const myWidth = '10' + '0%';
 function MyComponent(props) {
     return (<div>
-                <div className="a1 a2 a3">
+                <div className="a2 a3 a4">
                     hello
                 </div>
-                <div className="a0"/>
-                <div className="a1 a2">
+                <div className="a0 a1"/>
+                <div className="a2 a3">
                     hey!
                 </div>
-                <div className="a2 a1"/>
-                <div className="a0 a1 a2 a3">heyoo</div>
+                <div className="a3 a2"/>
+                <div className="a0 a2 a3 a4">heyoo</div>
             </div>);
 }
 `,
     'style.css': `
 .a0 { backgroundColor: '#000' }
-.a1 { width: '100%' }
-.a2 { height: '100%' }
-.a3 { color: 'blue' }
+.a1 { lineHeight: '10em' }
+.a2 { width: '100%' }
+.a3 { height: '100%' }
+.a4 { color: 'blue' }
 `,
   };
 
