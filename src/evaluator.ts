@@ -7,7 +7,15 @@ export function evaluate(
 ): any {
   if (ts.isBinaryExpression(expr)) {
     const left = evaluate(expr.left, typeChecker, scope);
+    if (isRequiresRuntimeResult(left)) {
+      return left;
+    }
+
     const right = evaluate(expr.right, typeChecker, scope);
+    if (isRequiresRuntimeResult(right)) {
+      return right;
+    }
+
     if (expr.operatorToken.kind == ts.SyntaxKind.PlusToken) {
       return left + right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.MinusToken) {
@@ -53,14 +61,31 @@ export function evaluate(
   } else if (ts.isParenthesizedExpression(expr)) {
     return evaluate(expr.expression, typeChecker, scope);
   } else if (ts.isConditionalExpression(expr)) {
-    return evaluate(expr.condition, typeChecker, scope)
-      ? evaluate(expr.whenTrue, typeChecker, scope)
-      : evaluate(expr.whenFalse, typeChecker, scope);
+    const condition = evaluate(expr.condition, typeChecker, scope);
+    if (isRequiresRuntimeResult(condition)) {
+      return condition;
+    }
+    const whenTrue = evaluate(expr.whenTrue, typeChecker, scope);
+    if (isRequiresRuntimeResult(whenTrue)) {
+      return whenTrue;
+    }
+    if (condition) {
+      return whenTrue;
+    }
+
+    const whenFalse = evaluate(expr.whenFalse, typeChecker, scope);
+    if (isRequiresRuntimeResult(whenFalse)) {
+      return whenFalse;
+    }
+    return whenFalse;
   } else if (ts.isPrefixUnaryExpression(expr)) {
     if (expr.operator == ts.SyntaxKind.PlusPlusToken || expr.operator == ts.SyntaxKind.MinusMinusToken) {
-      throw new Error('-- or ++ expressions are not supported');
+      return requiresRuntimeResult('-- or ++ expressions are not supported');
     }
     const value = evaluate(expr.operand, typeChecker, scope);
+    if (isRequiresRuntimeResult(value)) {
+      return value;
+    }
     if (expr.operator == ts.SyntaxKind.PlusToken) {
       return +value;
     }
@@ -75,6 +100,9 @@ export function evaluate(
     }
   } else if (ts.isPropertyAccessExpression(expr)) {
     const obj = evaluate(expr.expression, typeChecker, scope);
+    if (isRequiresRuntimeResult(obj)) {
+      return obj;
+    }
     if (!obj && expr.questionDotToken) {
       return undefined;
     }
@@ -82,31 +110,44 @@ export function evaluate(
     return obj[property];
   } else if (ts.isElementAccessExpression(expr)) {
     const obj = evaluate(expr.expression, typeChecker, scope);
+    if (isRequiresRuntimeResult(obj)) {
+      return obj;
+    }
     if (!obj && expr.questionDotToken) {
       return undefined;
     }
     const property = evaluate(expr.argumentExpression, typeChecker, scope);
+    if (isRequiresRuntimeResult(property)) {
+      return property;
+    }
     return obj[property];
   } else if (ts.isTaggedTemplateExpression(expr)) {
-    throw new Error('Tagged templates are not supported');
+    return requiresRuntimeResult('Tagged templates are not supported');
   } else if (ts.isTemplateExpression(expr)) {
     let s = expr.head.text;
     for (const span of expr.templateSpans) {
-      s += evaluate(span.expression, typeChecker, scope);
+      const value = evaluate(span.expression, typeChecker, scope);
+      if (isRequiresRuntimeResult(value)) {
+        return value;
+      }
+      s += value;
       s += span.literal.text;
     }
+    return s;
   } else if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr) || ts.isFunctionDeclaration(expr)) {
     let bodyExpression: ts.Expression | undefined;
     if (expr.body) {
       if (ts.isBlock(expr.body)) {
         if (expr.body.statements.length > 1) {
-          throw new Error('Cannot evaluate functions with more than one statement');
+          return requiresRuntimeResult('Cannot evaluate functions with more than one statement');
         }
         const statement = expr.body.statements[0];
         if (ts.isReturnStatement(statement)) {
           bodyExpression = statement.expression;
         } else {
-          throw new Error('Cannot evaluate functions where the single statement is not a return statement');
+          return requiresRuntimeResult(
+            'Cannot evaluate functions where the single statement is not a return statement',
+          );
         }
       } else {
         bodyExpression = expr.body;
@@ -134,6 +175,9 @@ export function evaluate(
     };
   } else if (ts.isCallExpression(expr)) {
     const callable = evaluate(expr.expression, typeChecker, scope) as Function;
+    if (isRequiresRuntimeResult(callable)) {
+      return callable;
+    }
     const args = [];
     for (const arg of expr.arguments) {
       const value = evaluate(arg, typeChecker, scope);
@@ -207,14 +251,23 @@ export function evaluate(
       }
       if (property.name && ts.isComputedPropertyName(property.name)) {
         const value = evaluate(property.name.expression, typeChecker, scope);
+        if (isRequiresRuntimeResult(value)) {
+          return value;
+        }
         propertyName = value.toString();
       }
       let value: any = undefined;
       if (ts.isPropertyAssignment(property)) {
         value = evaluate(property.initializer, typeChecker, scope);
+        if (isRequiresRuntimeResult(value)) {
+          return value;
+        }
       }
       if (ts.isShorthandPropertyAssignment(property)) {
         value = evaluate(property.name, typeChecker, scope);
+        if (isRequiresRuntimeResult(value)) {
+          return value;
+        }
       }
 
       obj[propertyName] = value;
@@ -223,7 +276,11 @@ export function evaluate(
   } else if (ts.isArrayLiteralExpression(expr)) {
     const array: any[] = [];
     for (const element of expr.elements) {
-      array.push(evaluate(element, typeChecker, scope));
+      const value = evaluate(element, typeChecker, scope);
+      if (isRequiresRuntimeResult(value)) {
+        return value;
+      }
+      array.push(value);
     }
     return array;
   } else if (ts.isEnumDeclaration(expr)) {
@@ -235,6 +292,9 @@ export function evaluate(
         memberName = member.name.text;
       } else if (ts.isComputedPropertyName(member.name)) {
         const value = evaluate(member.name.expression, typeChecker, scope);
+        if (isRequiresRuntimeResult(value)) {
+          return value;
+        }
         memberName = value.toString();
       } else {
         throw new Error('Unsupported enum declaration');
@@ -244,6 +304,9 @@ export function evaluate(
         enm[i] = memberName;
       } else {
         const value = evaluate(member.initializer, typeChecker, scope);
+        if (isRequiresRuntimeResult(value)) {
+          return value;
+        }
         enm[memberName] = value;
       }
       i++;
@@ -251,4 +314,24 @@ export function evaluate(
     return enm;
   }
   throw new Error('Unable to evaluate expression, unsupported expression token kind: ' + expr.kind);
+}
+
+export type RequiresRuntimeResult = {
+  __requiresRuntime: true;
+  message: string;
+};
+
+function requiresRuntimeResult(message: string): RequiresRuntimeResult {
+  return {
+    __requiresRuntime: true,
+    message,
+  };
+}
+
+export function isRequiresRuntimeResult(o: unknown): o is RequiresRuntimeResult {
+  if (!o || typeof o !== 'object') {
+    return false;
+  }
+  const res = o as RequiresRuntimeResult;
+  return res.__requiresRuntime === true;
 }

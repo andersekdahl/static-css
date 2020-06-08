@@ -1,5 +1,7 @@
 import * as ts from 'typescript';
-import { evaluate } from './evaluator';
+import { evaluate, RequiresRuntimeResult, isRequiresRuntimeResult } from './evaluator';
+
+export const generatedClassNames: { [cssRule: string]: string } = {};
 
 export const moduleName = './styledx';
 export const styledxName = 'styledx';
@@ -75,12 +77,15 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
             const elementName = callExpr.expression.name.escapedText.toString();
             const styleObject = callExpr.arguments[0];
             if (callExpr.arguments.length === 1 && !!styleObject && ts.isObjectLiteralExpression(styleObject)) {
-              staticStyledComponent[componentName] = {
-                componentName,
-                elementName,
-                cssData: getCssData(styleObject, typeChecker),
-              };
-              return [];
+              const cssData = getCssData(styleObject, typeChecker);
+              if (!isRequiresRuntimeResult(cssData)) {
+                staticStyledComponent[componentName] = {
+                  componentName,
+                  elementName,
+                  cssData,
+                };
+                return [];
+              }
             }
           }
         }
@@ -94,13 +99,16 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
 
           if (ts.isIdentifier(parentStyledComponent) && ts.isObjectLiteralExpression(styleObject)) {
             const parentName = parentStyledComponent.escapedText.toString();
-            if (staticStyledComponent[parentName]) {
-              staticStyledComponent[componentName] = {
-                componentName,
-                elementName: staticStyledComponent[parentName].elementName,
-                cssData: getCssData(styleObject, typeChecker, staticStyledComponent[parentName]),
-              };
-              return [];
+            const cssData = getCssData(styleObject, typeChecker, staticStyledComponent[parentName]);
+            if (!isRequiresRuntimeResult(cssData)) {
+              if (staticStyledComponent[parentName]) {
+                staticStyledComponent[componentName] = {
+                  componentName,
+                  elementName: staticStyledComponent[parentName].elementName,
+                  cssData,
+                };
+                return [];
+              }
             }
           }
         }
@@ -126,14 +134,17 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
       cssJsxAttr.initializer.expression &&
       ts.isObjectLiteralExpression(cssJsxAttr.initializer.expression)
     ) {
-      const classNames = getCssData(cssJsxAttr.initializer.expression, typeChecker).classNames;
-      return ts.createJsxSelfClosingElement(
-        ts.createIdentifier(elementName),
-        undefined,
-        ts.createJsxAttributes([
-          ts.createJsxAttribute(ts.createIdentifier('className'), ts.createStringLiteral(classNames.join(' '))),
-        ]),
-      );
+      const cssData = getCssData(cssJsxAttr.initializer.expression, typeChecker);
+      if (!isRequiresRuntimeResult(cssData)) {
+        const classNames = cssData.classNames;
+        return ts.createJsxSelfClosingElement(
+          ts.createIdentifier(elementName),
+          undefined,
+          ts.createJsxAttributes([
+            ts.createJsxAttribute(ts.createIdentifier('className'), ts.createStringLiteral(classNames.join(' '))),
+          ]),
+        );
+      }
     }
   }
 
@@ -155,14 +166,17 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
       cssJsxAttr.initializer.expression &&
       ts.isObjectLiteralExpression(cssJsxAttr.initializer.expression)
     ) {
-      const classNames = getCssData(cssJsxAttr.initializer.expression, typeChecker).classNames;
-      return ts.createJsxOpeningElement(
-        ts.createIdentifier(elementName),
-        undefined,
-        ts.createJsxAttributes([
-          ts.createJsxAttribute(ts.createIdentifier('className'), ts.createStringLiteral(classNames.join(' '))),
-        ]),
-      );
+      const cssData = getCssData(cssJsxAttr.initializer.expression, typeChecker);
+      if (!isRequiresRuntimeResult(cssData)) {
+        const classNames = cssData.classNames;
+        return ts.createJsxOpeningElement(
+          ts.createIdentifier(elementName),
+          undefined,
+          ts.createJsxAttributes([
+            ts.createJsxAttribute(ts.createIdentifier('className'), ts.createStringLiteral(classNames.join(' '))),
+          ]),
+        );
+      }
     }
   }
 
@@ -216,8 +230,6 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
   return node;
 }
 
-export const generatedClassNames: { [cssRule: string]: string } = {};
-
 function getCssData(
   styleObject: ts.ObjectLiteralExpression,
   typeChecker: ts.TypeChecker,
@@ -227,9 +239,15 @@ function getCssData(
   const cssRules = {};
 
   const obj = evaluate(styleObject, typeChecker, {}) as Object;
+  if (isRequiresRuntimeResult(obj)) {
+    return obj;
+  }
 
   if (parentComponent) {
     const parentObj = evaluate(parentComponent.cssData.styleObject, typeChecker, {}) as Object;
+    if (isRequiresRuntimeResult(parentObj)) {
+      return parentObj;
+    }
     for (const key of Object.keys(parentObj)) {
       if (!(key in obj)) {
         obj[key] = parentObj[key];
