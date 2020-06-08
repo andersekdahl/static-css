@@ -60,20 +60,6 @@ const StyledSelfClosing = styledx.div({
   };
 
   const expected = {
-    'shared.js': `
-export const black = '#' + '000';
-const blue = 'blue';
-export { blue as blueColor };
-export var Unit;
-(function (Unit) {
-    Unit[Unit["Px"] = 0] = "Px";
-    Unit[Unit["Em"] = 1] = "Em";
-    Unit[Unit["Rem"] = 2] = "Rem";
-})(Unit || (Unit = {}));
-export function pixelsToUnit(value, unit) {
-    return unit === Unit.Px ? value + 'px' : value + (unit === Unit.Rem ? 'rem' : 'em');
-}
-`,
     'file1.jsx': `
 import { black, blueColor, pixelsToUnit, Unit } from './shared';
 const calcHeight = (base) => base * 10;
