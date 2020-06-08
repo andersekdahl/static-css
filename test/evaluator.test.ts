@@ -1,3 +1,4 @@
+import { isRequiresRuntimeResult, RequiresRuntimeResult } from '../src/evaluator';
 import evaluate from './evaluate';
 
 test('can evaluate a variable', () => {
@@ -142,4 +143,30 @@ const y = twoHundred;
 `,
   };
   expect(evaluate('theCalculator(x, y)', code)).toBe(100 + 200 + 1);
+});
+
+test('values that are unknown at compile time gets reported correctly', () => {
+  const code = {
+    'entry.ts': `
+const x = 'random value';
+const z = 'other random value';
+const u = 'some other random value';
+const y = window.innerHeight + 100;
+`.trim(),
+  };
+  const res = evaluate('y', code) as RequiresRuntimeResult;
+  expect(isRequiresRuntimeResult(res)).toBe(true);
+  const diagnostics = res.getDiagnostics();
+  expect(diagnostics?.source).toBe('window');
+  expect(diagnostics?.line).toBe(3);
+  expect(diagnostics?.file).toBe('entry.ts');
+});
+
+test('can inject variables', () => {
+  const code = {
+    'entry.ts': `
+const y = window.innerHeight + 100;
+`,
+  };
+  expect(evaluate('y', code, { window: { innerHeight: 100 } })).toBe(200);
 });

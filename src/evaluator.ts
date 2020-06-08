@@ -208,11 +208,11 @@ export function evaluate(
       symbol = typeChecker.getShorthandAssignmentValueSymbol(symbol.valueDeclaration);
     }
     if (!symbol) {
-      throw new Error(`Unable to resolve identifier '${expr.text}'`);
+      return requiresRuntimeResult(`Unable to resolve identifier '${expr.text}'`, expr);
     }
     if (ts.isVariableDeclaration(symbol.valueDeclaration)) {
       if (!symbol.valueDeclaration.initializer) {
-        throw new Error(`Unable to resolve identifier '${expr.text}'`);
+        return requiresRuntimeResult(`Unable to resolve identifier '${expr.text}'`, expr);
       }
       return evaluate(symbol.valueDeclaration.initializer, typeChecker, scope);
     }
@@ -311,8 +311,7 @@ function resolveImportSymbol(variableName: string, symbol: ts.Symbol, typeChecke
   if (!symbol.valueDeclaration) {
     const importSpecifier = symbol.declarations[0];
     if (ts.isImportSpecifier(importSpecifier)) {
-      const x = importSpecifier.parent;
-      const importSymbol = typeChecker.getSymbolAtLocation(x.parent.parent.moduleSpecifier);
+      const importSymbol = typeChecker.getSymbolAtLocation(importSpecifier.parent.parent.parent.moduleSpecifier);
       if (importSymbol) {
         const exports = typeChecker.getExportsOfModule(importSymbol);
         for (const exp of exports) {
@@ -328,10 +327,9 @@ function resolveImportSymbol(variableName: string, symbol: ts.Symbol, typeChecke
     const exportSpecifier = symbol.declarations[0];
     if (ts.isExportSpecifier(exportSpecifier)) {
       const variableToLookFor = exportSpecifier.propertyName?.text ?? exportSpecifier.name.text;
-      const x = exportSpecifier.parent;
-
-      if (x.parent.moduleSpecifier) {
-        const importSymbol = typeChecker.getSymbolAtLocation(x.parent.moduleSpecifier);
+      const moduleSpecifier = exportSpecifier.parent.parent.moduleSpecifier;
+      if (moduleSpecifier) {
+        const importSymbol = typeChecker.getSymbolAtLocation(moduleSpecifier);
         if (importSymbol) {
           const exports = typeChecker.getExportsOfModule(importSymbol);
           for (const exp of exports) {
@@ -360,6 +358,7 @@ export type RequiresRuntimeResult = {
   __requiresRuntime: true;
   message: string;
   node?: ts.Node;
+  getDiagnostics(): undefined | { line: number; source: string; file: string };
 };
 
 function requiresRuntimeResult(message: string, node?: ts.Node): RequiresRuntimeResult {
@@ -367,6 +366,21 @@ function requiresRuntimeResult(message: string, node?: ts.Node): RequiresRuntime
     __requiresRuntime: true,
     message,
     node,
+    getDiagnostics() {
+      if (!node) {
+        return undefined;
+      }
+      let file = node;
+      while (!ts.isSourceFile(file)) {
+        file = file.parent;
+      }
+
+      return {
+        source: node.getText(file),
+        file: file.fileName,
+        line: file.getLineAndCharacterOfPosition(node.pos).line,
+      };
+    },
   };
 }
 
