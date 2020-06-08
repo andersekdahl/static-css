@@ -80,7 +80,7 @@ export function evaluate(
     return whenFalse;
   } else if (ts.isPrefixUnaryExpression(expr)) {
     if (expr.operator == ts.SyntaxKind.PlusPlusToken || expr.operator == ts.SyntaxKind.MinusMinusToken) {
-      return requiresRuntimeResult('-- or ++ expressions are not supported');
+      return requiresRuntimeResult('-- or ++ expressions are not supported', expr);
     }
     const value = evaluate(expr.operand, typeChecker, scope);
     if (isRequiresRuntimeResult(value)) {
@@ -122,7 +122,7 @@ export function evaluate(
     }
     return obj[property];
   } else if (ts.isTaggedTemplateExpression(expr)) {
-    return requiresRuntimeResult('Tagged templates are not supported');
+    return requiresRuntimeResult('Tagged templates are not supported', expr);
   } else if (ts.isTemplateExpression(expr)) {
     let s = expr.head.text;
     for (const span of expr.templateSpans) {
@@ -139,7 +139,7 @@ export function evaluate(
     if (expr.body) {
       if (ts.isBlock(expr.body)) {
         if (expr.body.statements.length > 1) {
-          return requiresRuntimeResult('Cannot evaluate functions with more than one statement');
+          return requiresRuntimeResult('Cannot evaluate functions with more than one statement', expr);
         }
         const statement = expr.body.statements[0];
         if (ts.isReturnStatement(statement)) {
@@ -147,6 +147,7 @@ export function evaluate(
         } else {
           return requiresRuntimeResult(
             'Cannot evaluate functions where the single statement is not a return statement',
+            expr,
           );
         }
       } else {
@@ -198,20 +199,10 @@ export function evaluate(
       throw new Error(`Unable to resolve identifier '${expr.text}'`);
     }
     if (!symbol.valueDeclaration) {
-      const importSpecifier = symbol.declarations[0];
-      if (ts.isImportSpecifier(importSpecifier)) {
-        const x = importSpecifier.parent;
-        const importSymbol = typeChecker.getSymbolAtLocation(x.parent.parent.moduleSpecifier);
-        if (importSymbol) {
-          const exports = typeChecker.getExportsOfModule(importSymbol);
-          for (const exp of exports) {
-            if (exp.escapedName === expr.text) {
-              symbol = exp;
-              break;
-            }
-          }
-        }
-      }
+      symbol = resolveImportSymbol(expr.text, symbol, typeChecker);
+    }
+    if (!symbol.valueDeclaration) {
+      return requiresRuntimeResult('Unable to find the value declaration of imported symbol', expr);
     }
     if (ts.isShorthandPropertyAssignment(symbol.valueDeclaration)) {
       symbol = typeChecker.getShorthandAssignmentValueSymbol(symbol.valueDeclaration);
@@ -316,15 +307,66 @@ export function evaluate(
   throw new Error('Unable to evaluate expression, unsupported expression token kind: ' + expr.kind);
 }
 
+function resolveImportSymbol(variableName: string, symbol: ts.Symbol, typeChecker: ts.TypeChecker) {
+  if (!symbol.valueDeclaration) {
+    const importSpecifier = symbol.declarations[0];
+    if (ts.isImportSpecifier(importSpecifier)) {
+      const x = importSpecifier.parent;
+      const importSymbol = typeChecker.getSymbolAtLocation(x.parent.parent.moduleSpecifier);
+      if (importSymbol) {
+        const exports = typeChecker.getExportsOfModule(importSymbol);
+        for (const exp of exports) {
+          if (exp.escapedName === variableName) {
+            symbol = exp;
+            break;
+          }
+        }
+      }
+    }
+  }
+  if (!symbol.valueDeclaration) {
+    const exportSpecifier = symbol.declarations[0];
+    if (ts.isExportSpecifier(exportSpecifier)) {
+      const variableToLookFor = exportSpecifier.propertyName?.text ?? exportSpecifier.name.text;
+      const x = exportSpecifier.parent;
+
+      if (x.parent.moduleSpecifier) {
+        const importSymbol = typeChecker.getSymbolAtLocation(x.parent.moduleSpecifier);
+        if (importSymbol) {
+          const exports = typeChecker.getExportsOfModule(importSymbol);
+          for (const exp of exports) {
+            if (exp.escapedName === variableToLookFor) {
+              if (!exp.valueDeclaration) {
+                symbol = resolveImportSymbol(variableToLookFor, exp, typeChecker);
+              } else {
+                symbol = exp;
+              }
+              break;
+            }
+          }
+        }
+      } else {
+        const local = typeChecker.getExportSpecifierLocalTargetSymbol(exportSpecifier);
+        if (local) {
+          symbol = local;
+        }
+      }
+    }
+  }
+  return symbol;
+}
+
 export type RequiresRuntimeResult = {
   __requiresRuntime: true;
   message: string;
+  node?: ts.Node;
 };
 
-function requiresRuntimeResult(message: string): RequiresRuntimeResult {
+function requiresRuntimeResult(message: string, node?: ts.Node): RequiresRuntimeResult {
   return {
     __requiresRuntime: true,
     message,
+    node,
   };
 }
 

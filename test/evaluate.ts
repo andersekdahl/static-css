@@ -5,7 +5,10 @@ import { evaluate } from '../src/evaluator';
 
 export default function(expression: string, files: { [fileName: string]: string } = {}, scope = {}) {
   const outputs: { [fileName: string]: string } = {};
-  files['entry.ts'] += '\nconst expressionToBeEvaluated = ' + expression + ';';
+  const rand = Math.random()
+    .toString()
+    .replace(/[^0-9]+/g, '');
+  files['entry.ts'] += '\nconst expressionToBeEvaluated' + rand + ' = ' + expression + ';';
 
   let result: any = undefined;
 
@@ -25,7 +28,7 @@ export default function(expression: string, files: { [fileName: string]: string 
 
   function visitNode(node: ts.Node, program: ts.Program): any /* TODO */ {
     if (ts.isVariableDeclaration(node)) {
-      if (ts.isIdentifier(node.name) && node.initializer && node.name.text === 'expressionToBeEvaluated') {
+      if (ts.isIdentifier(node.name) && node.initializer && node.name.text === 'expressionToBeEvaluated' + rand) {
         result = evaluate(node.initializer, program.getTypeChecker(), scope);
       }
     }
