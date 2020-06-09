@@ -1,13 +1,13 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as ts from 'typescript';
-import transformer, { styledxName, generatedClassNames } from '../src/';
+import transformer, { styledName, generatedClassNames } from '../src/';
 
 export default function compile(files: { [fileName: string]: string }) {
-  files['styledx.ts'] = `
-export const styledx = (...args: any[]) => null;
-styledx.div = (args: any) => null;
-styledx.Div = (props: any) => null;
+  files['@glitz/react.ts'] = `
+export const styled = (...args: any[]) => null;
+styled.div = (args: any) => null;
+styled.Div = (props: any) => null;
 `;
 
   const outputs: { [fileName: string]: string } = {};
@@ -34,16 +34,18 @@ styledx.Div = (props: any) => null;
       return undefined;
     },
     readFile(fileName: string) {
+      console.log('readFile', fileName);
       return fileName;
     },
     fileExists(fileName: string) {
+      console.log('fileExists', fileName);
       return true;
     },
     getDefaultLibFileName(options: ts.CompilerOptions) {
       return 'lib.d.ts';
     },
     writeFile: function(fileName, data, writeByteOrderMark) {
-      if (!fileName.includes(styledxName)) {
+      if (!fileName.includes(styledName)) {
         outputs[fileName] = data;
       }
     },
@@ -76,7 +78,6 @@ styledx.Div = (props: any) => null;
   const { emitSkipped, diagnostics } = program.emit(undefined, writeFileCallback, undefined, false, transformers);
 
   if (emitSkipped) {
-    console.log(diagnostics);
     throw new Error(diagnostics.map((diagnostic) => diagnostic.messageText).join('\n'));
   }
 

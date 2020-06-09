@@ -12,12 +12,12 @@ beforeEach(() => {
 test('can extract simple component', () => {
   const code = {
     'file1.tsx': `
-import { styledx } from './styledx';
+import { styled } from '@glitz/react';
 function MyComponent(props: {}) {
     return <Styled>hello</Styled>;
 }
 
-const Styled = styledx.div({
+const Styled = styled.div({
     width: '100%',
     height: '100%'
 });
@@ -26,6 +26,7 @@ const Styled = styledx.div({
 
   const expected = {
     'file1.jsx': `
+import { styled } from '@glitz/react';
 function MyComponent(props) {
     return <div className="a0 a1">hello</div>;
 }
@@ -42,17 +43,17 @@ function MyComponent(props) {
 test('can extract derived component', () => {
   const code = {
     'file1.tsx': `
-import { styledx } from './styledx';
+import { styled } from '@glitz/react';
 function MyComponent(props: {}) {
     return <DerivedStyled>hello</DerivedStyled>;
 }
 
-const Styled = styledx.div({
+const Styled = styled.div({
     width: '100%',
     height: '100%'
 });
 
-const DerivedStyled = styledx(Styled, {
+const DerivedStyled = styled(Styled, {
   backgroundColor: 'black',
 });
 `,
@@ -60,6 +61,7 @@ const DerivedStyled = styledx(Styled, {
 
   const expected = {
     'file1.jsx': `
+import { styled } from '@glitz/react';
 function MyComponent(props) {
     return <div className="a2 a0 a1">hello</div>;
 }
@@ -77,15 +79,16 @@ function MyComponent(props) {
 test('can use an inline component', () => {
   const code = {
     'file1.tsx': `
-import { styledx } from './styledx';
+import { styled } from '@glitz/react';
 function MyComponent(props: {}) {
-    return <styledx.Div css={{backgroundColor: 'black'}}>hello</styledx.Div>;
+    return <styled.Div css={{backgroundColor: 'black'}}>hello</styled.Div>;
 }
 `,
   };
 
   const expected = {
     'file1.jsx': `
+import { styled } from '@glitz/react';
 function MyComponent(props) {
     return <div className="a0">hello</div>;
 }
@@ -101,16 +104,17 @@ function MyComponent(props) {
 test('can use variables in style object', () => {
   const code = {
     'file1.tsx': `
-import { styledx } from './styledx';
+import { styled } from '@glitz/react';
 const size = '100' + '%';
 function MyComponent(props: {}) {
-    return <styledx.Div css={{height: size}}>hello</styledx.Div>;
+    return <styled.Div css={{height: size}}>hello</styled.Div>;
 }
 `,
   };
 
   const expected = {
     'file1.jsx': `
+import { styled } from '@glitz/react';
 const size = '100' + '%';
 function MyComponent(props) {
     return <div className="a0">hello</div>;
@@ -119,6 +123,45 @@ function MyComponent(props) {
     'style.css': `
 .a0 { height: '100%' }
 `,
+  };
+
+  expectEqual(expected, compile(code));
+});
+
+test.only('it bails when it finds a variable that can not be statically evaluated', () => {
+  const code = {
+    'file1.tsx': `
+import { styled } from '@glitz/react';
+function MyComponent(props: {}) {
+    return <styled.Div css={{ height: window.innerHeight }}><DerivedStyled /></styled.Div>;
+}
+
+const Styled = styled.div({
+    width: '100%',
+    height: window.innerHeight + 'px',
+});
+
+const DerivedStyled = styled(Styled, {
+    backgroundColor: 'black',
+});
+`,
+  };
+
+  const expected = {
+    'file1.jsx': `
+import { styled } from '@glitz/react';
+function MyComponent(props) {
+    return <styled.Div css={{ height: window.innerHeight }}><DerivedStyled /></styled.Div>;
+}
+const Styled = styled.div({
+    width: '100%',
+    height: window.innerHeight + 'px',
+});
+const DerivedStyled = styled(Styled, {
+    backgroundColor: 'black',
+});
+`,
+    'style.css': ``,
   };
 
   expectEqual(expected, compile(code));

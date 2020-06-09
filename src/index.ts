@@ -3,8 +3,8 @@ import { evaluate, RequiresRuntimeResult, isRequiresRuntimeResult } from './eval
 
 export const generatedClassNames: { [cssRule: string]: string } = {};
 
-export const moduleName = './styledx';
-export const styledxName = 'styledx';
+export const moduleName = '@glitz/react';
+export const styledName = 'styled';
 
 type StaticStyledComponent = {
   componentName: string;
@@ -58,7 +58,10 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
   if (ts.isImportDeclaration(node)) {
     if ((node.moduleSpecifier as ts.StringLiteral).text === moduleName) {
       // TODO: Should only do this if the only thing imported is the static/styledx import
-      return [];
+      //return [];
+
+      // TODO: Do we need to remove this? Will it get dead code eliminated?
+      return node;
     }
   }
   if (ts.isVariableStatement(node)) {
@@ -73,7 +76,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
         const componentName = declaration.name.escapedText.toString();
 
         if (ts.isPropertyAccessExpression(callExpr.expression) && ts.isIdentifier(callExpr.expression.expression)) {
-          if (callExpr.expression.expression.escapedText === styledxName) {
+          if (callExpr.expression.expression.escapedText === styledName) {
             const elementName = callExpr.expression.name.escapedText.toString();
             const styleObject = callExpr.arguments[0];
             if (callExpr.arguments.length === 1 && !!styleObject && ts.isObjectLiteralExpression(styleObject)) {
@@ -91,7 +94,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
         }
         if (
           ts.isIdentifier(callExpr.expression) &&
-          callExpr.expression.escapedText.toString() === styledxName &&
+          callExpr.expression.escapedText.toString() === styledName &&
           callExpr.arguments.length === 2
         ) {
           const parentStyledComponent = callExpr.arguments[0];
@@ -99,15 +102,18 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
 
           if (ts.isIdentifier(parentStyledComponent) && ts.isObjectLiteralExpression(styleObject)) {
             const parentName = parentStyledComponent.escapedText.toString();
-            const cssData = getCssData(styleObject, typeChecker, staticStyledComponent[parentName]);
-            if (!isRequiresRuntimeResult(cssData)) {
-              if (staticStyledComponent[parentName]) {
-                staticStyledComponent[componentName] = {
-                  componentName,
-                  elementName: staticStyledComponent[parentName].elementName,
-                  cssData,
-                };
-                return [];
+            const parent = staticStyledComponent[parentName];
+            if (parent) {
+              const cssData = getCssData(styleObject, typeChecker, parent);
+              if (!isRequiresRuntimeResult(cssData)) {
+                if (staticStyledComponent[parentName]) {
+                  staticStyledComponent[componentName] = {
+                    componentName,
+                    elementName: staticStyledComponent[parentName].elementName,
+                    cssData,
+                  };
+                  return [];
+                }
               }
             }
           }
@@ -120,7 +126,7 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
     ts.isJsxSelfClosingElement(node) &&
     ts.isPropertyAccessExpression(node.tagName) &&
     ts.isIdentifier(node.tagName.expression) &&
-    node.tagName.expression.escapedText.toString() === styledxName
+    node.tagName.expression.escapedText.toString() === styledName
   ) {
     const elementName = node.tagName.name.escapedText.toString().toLowerCase();
     const cssJsxAttr = node.attributes.properties.find(
@@ -148,46 +154,62 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
     }
   }
 
-  if (
-    ts.isJsxOpeningElement(node) &&
-    ts.isPropertyAccessExpression(node.tagName) &&
-    ts.isIdentifier(node.tagName.expression) &&
-    node.tagName.expression.escapedText.toString() === styledxName
-  ) {
-    const elementName = node.tagName.name.escapedText.toString().toLowerCase();
-    const cssJsxAttr = node.attributes.properties.find(
-      (p) => p.name && ts.isIdentifier(p.name) && p.name.escapedText.toString() === 'css',
-    );
+  if (ts.isJsxElement(node)) {
+    const openingElement = node.openingElement;
     if (
-      cssJsxAttr &&
-      ts.isJsxAttribute(cssJsxAttr) &&
-      cssJsxAttr.initializer &&
-      ts.isJsxExpression(cssJsxAttr.initializer) &&
-      cssJsxAttr.initializer.expression &&
-      ts.isObjectLiteralExpression(cssJsxAttr.initializer.expression)
+      ts.isPropertyAccessExpression(openingElement.tagName) &&
+      ts.isIdentifier(openingElement.tagName.expression) &&
+      openingElement.tagName.expression.escapedText.toString() === styledName
     ) {
-      const cssData = getCssData(cssJsxAttr.initializer.expression, typeChecker);
-      if (!isRequiresRuntimeResult(cssData)) {
-        const classNames = cssData.classNames;
-        return ts.createJsxOpeningElement(
-          ts.createIdentifier(elementName),
-          undefined,
-          ts.createJsxAttributes([
-            ts.createJsxAttribute(ts.createIdentifier('className'), ts.createStringLiteral(classNames.join(' '))),
-          ]),
+      const elementName = openingElement.tagName.name.escapedText.toString().toLowerCase();
+      const cssJsxAttr = openingElement.attributes.properties.find(
+        (p) => p.name && ts.isIdentifier(p.name) && p.name.escapedText.toString() === 'css',
+      );
+      if (
+        cssJsxAttr &&
+        ts.isJsxAttribute(cssJsxAttr) &&
+        cssJsxAttr.initializer &&
+        ts.isJsxExpression(cssJsxAttr.initializer) &&
+        cssJsxAttr.initializer.expression &&
+        ts.isObjectLiteralExpression(cssJsxAttr.initializer.expression)
+      ) {
+        const cssData = getCssData(cssJsxAttr.initializer.expression, typeChecker);
+        if (!isRequiresRuntimeResult(cssData)) {
+          const classNames = cssData.classNames;
+          return ts.createJsxElement(
+            ts.createJsxOpeningElement(
+              ts.createIdentifier(elementName),
+              undefined,
+              ts.createJsxAttributes([
+                ts.createJsxAttribute(ts.createIdentifier('className'), ts.createStringLiteral(classNames.join(' '))),
+              ]),
+            ),
+            node.children,
+            ts.createJsxClosingElement(ts.createIdentifier(elementName)),
+          );
+        }
+      }
+    }
+
+    if (ts.isIdentifier(openingElement.tagName) && ts.isIdentifier(openingElement.tagName)) {
+      const jsxTagName = openingElement.tagName.escapedText.toString();
+      if (staticStyledComponent[jsxTagName]) {
+        return ts.createJsxElement(
+          ts.createJsxOpeningElement(
+            ts.createIdentifier(staticStyledComponent[jsxTagName].elementName),
+            undefined,
+            ts.createJsxAttributes([
+              ts.createJsxAttribute(
+                ts.createIdentifier('className'),
+                ts.createStringLiteral(staticStyledComponent[jsxTagName].cssData.classNames.join(' ')),
+              ),
+            ]),
+          ),
+          node.children,
+          ts.createJsxClosingElement(ts.createIdentifier(staticStyledComponent[jsxTagName].elementName)),
         );
       }
     }
-  }
-
-  if (
-    ts.isJsxClosingElement(node) &&
-    ts.isPropertyAccessExpression(node.tagName) &&
-    ts.isIdentifier(node.tagName.expression) &&
-    node.tagName.expression.escapedText.toString() === styledxName
-  ) {
-    const elementName = node.tagName.name.escapedText.toString().toLowerCase();
-    return ts.createJsxClosingElement(ts.createIdentifier(elementName));
   }
 
   if (ts.isJsxSelfClosingElement(node) && ts.isIdentifier(node.tagName)) {
@@ -206,27 +228,6 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
     }
   }
 
-  if (ts.isJsxOpeningElement(node) && ts.isIdentifier(node.tagName)) {
-    const jsxTagName = node.tagName.escapedText.toString();
-    if (staticStyledComponent[jsxTagName]) {
-      return ts.createJsxOpeningElement(
-        ts.createIdentifier(staticStyledComponent[jsxTagName].elementName),
-        undefined,
-        ts.createJsxAttributes([
-          ts.createJsxAttribute(
-            ts.createIdentifier('className'),
-            ts.createStringLiteral(staticStyledComponent[jsxTagName].cssData.classNames.join(' ')),
-          ),
-        ]),
-      );
-    }
-  }
-  if (ts.isJsxClosingElement(node) && ts.isIdentifier(node.tagName)) {
-    const jsxTagName = node.tagName.escapedText.toString();
-    if (staticStyledComponent[jsxTagName]) {
-      return ts.createJsxClosingElement(ts.createIdentifier(staticStyledComponent[jsxTagName].elementName));
-    }
-  }
   return node;
 }
 
