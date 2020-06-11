@@ -6,6 +6,7 @@ type Code = { [fileName: string]: string };
 beforeEach(() => {
   for (const key of Object.keys(generatedClassNames)) {
     delete generatedClassNames[key];
+    generatedClassNames[''] = {};
   }
 });
 
@@ -70,6 +71,58 @@ function MyComponent(props) {
 .a0 { width: '100%' }
 .a1 { height: '100%' }
 .a2 { backgroundColor: 'black' }
+`,
+  };
+
+  expectEqual(expected, compile(code));
+});
+
+test('correctly handles media queries', () => {
+  const code = {
+    'file1.tsx': `
+import { styled } from '@glitz/react';
+function MyComponent(props: {}) {
+    return <Styled>hello</Styled>;
+}
+
+const Styled = styled.div({
+    [largeScreen()]: { width: '50%', height: '50%' },
+    [smallScreen()]: { width: '100%', height: '100%' },
+    background: '#000',
+});
+
+function largeScreen() {
+  return '@media (min-width: 768px)';
+}
+function smallScreen() {
+  return '@media (max-width: 768px)';
+}
+`,
+  };
+
+  const expected = {
+    'file1.jsx': `
+import { styled } from '@glitz/react';
+function MyComponent(props) {
+    return <div className="m10 m11 m20 m21 a0">hello</div>;
+}
+function largeScreen() {
+    return '@media (min-width: 768px)';
+}
+function smallScreen() {
+    return '@media (max-width: 768px)';
+}
+`,
+    'style.css': `
+.a0 { background: '#000' }
+@media (min-width: 768px) {
+  .m10 { width: '50%' }
+  .m11 { height: '50%' }
+}
+@media (max-width: 768px) {
+  .m20 { width: '100%' }
+  .m21 { height: '100%' }
+}
 `,
   };
 

@@ -79,9 +79,23 @@ styled.Div = (props: any) => null;
     throw new Error(diagnostics.map((diagnostic) => diagnostic.messageText).join('\n'));
   }
 
-  outputs['style.css'] = Object.keys(generatedClassNames)
-    .map((c) => `.${generatedClassNames[c]} { ${c} }`)
-    .join('\n');
+  let css = '';
+  for (const mediaQuery of Object.keys(generatedClassNames)) {
+    if (!mediaQuery) {
+      css +=
+        Object.keys(generatedClassNames[mediaQuery])
+          .map((c) => `.${generatedClassNames[mediaQuery][c]} { ${c} }`)
+          .join('\n') + '\n';
+    } else {
+      css += `${mediaQuery} {\n  `;
+      css +=
+        Object.keys(generatedClassNames[mediaQuery])
+          .map((c) => `.${generatedClassNames[mediaQuery][c]} { ${c} }`)
+          .join('\n  ') + '\n}\n';
+    }
+  }
+
+  outputs['style.css'] = css.trim();
 
   return outputs;
 }

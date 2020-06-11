@@ -1,7 +1,7 @@
 import * as ts from 'typescript';
 import { evaluate, requiresRuntimeResult, isRequiresRuntimeResult } from './evaluator';
 
-export const generatedClassNames: { [cssRule: string]: string } = {};
+export const generatedClassNames: { [mediaQuery: string]: { [cssRule: string]: string } } = { '': {} };
 
 export const moduleName = '@glitz/react';
 export const styledName = 'styled';
@@ -282,11 +282,28 @@ function getCssData(
     if (typeof obj[key] === 'function') {
       return requiresRuntimeResult('Styled properties as functions needs to be resolved at runtime', styleObject);
     }
-    const css = `${key}: '${obj[key]}'`;
-    if (!(css in generatedClassNames)) {
-      generatedClassNames[css] = 'a' + Object.keys(generatedClassNames).length;
+  }
+  for (const key of Object.keys(obj)) {
+    if (typeof obj[key] === 'object') {
+      const mediaQuery = key;
+      if (!(mediaQuery in generatedClassNames)) {
+        generatedClassNames[mediaQuery] = {};
+      }
+      const index = Object.keys(generatedClassNames).indexOf(mediaQuery);
+      for (const innerKey of Object.keys(obj[mediaQuery])) {
+        const css = `${innerKey}: '${obj[mediaQuery][innerKey]}'`;
+        if (!(css in generatedClassNames[mediaQuery])) {
+          generatedClassNames[mediaQuery][css] = 'm' + index + Object.keys(generatedClassNames[mediaQuery]).length;
+        }
+        classNames.push(generatedClassNames[mediaQuery][css]);
+      }
+    } else {
+      const css = `${key}: '${obj[key]}'`;
+      if (!(css in generatedClassNames[''])) {
+        generatedClassNames[''][css] = 'a' + Object.keys(generatedClassNames['']).length;
+      }
+      classNames.push(generatedClassNames[''][css]);
     }
-    classNames.push(generatedClassNames[css]);
   }
 
   return {
