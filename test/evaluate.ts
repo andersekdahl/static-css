@@ -97,7 +97,6 @@ export default function(expression: string, files: { [fileName: string]: string 
   const { emitSkipped, diagnostics } = program.emit(undefined, writeFileCallback, undefined, false, transformers);
 
   if (emitSkipped) {
-    console.log(diagnostics);
     throw new Error(diagnostics.map((diagnostic) => diagnostic.messageText).join('\n'));
   }
 

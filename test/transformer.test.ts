@@ -14,7 +14,7 @@ test('can extract simple component', () => {
     'file1.tsx': `
 import { styled } from '@glitz/react';
 function MyComponent(props: {}) {
-    return <Styled>hello</Styled>;
+    return <Styled id="some-id">hello</Styled>;
 }
 
 const Styled = styled.div({
@@ -28,7 +28,7 @@ const Styled = styled.div({
     'file1.jsx': `
 import { styled } from '@glitz/react';
 function MyComponent(props) {
-    return <div className="a0 a1">hello</div>;
+    return <div id="some-id" className="a0 a1">hello</div>;
 }
 `,
     'style.css': `
@@ -45,7 +45,7 @@ test('can extract derived component', () => {
     'file1.tsx': `
 import { styled } from '@glitz/react';
 function MyComponent(props: {}) {
-    return <DerivedStyled>hello</DerivedStyled>;
+    return <DerivedStyled onClick={() => alert('woah!')}>hello</DerivedStyled>;
 }
 
 const Styled = styled.div({
@@ -63,7 +63,7 @@ const DerivedStyled = styled(Styled, {
     'file1.jsx': `
 import { styled } from '@glitz/react';
 function MyComponent(props) {
-    return <div className="a2 a0 a1">hello</div>;
+    return <div onClick={() => alert('woah!')} className="a2 a0 a1">hello</div>;
 }
 `,
     'style.css': `
@@ -128,7 +128,7 @@ function MyComponent(props) {
   expectEqual(expected, compile(code));
 });
 
-test.only('it bails when it finds a variable that can not be statically evaluated', () => {
+test('it bails when it finds a variable that can not be statically evaluated', () => {
   const code = {
     'file1.tsx': `
 import { styled } from '@glitz/react';

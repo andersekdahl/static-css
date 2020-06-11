@@ -159,7 +159,7 @@ export function evaluate(
       if (ts.isIdentifier(parameter.name)) {
         parameters.push(parameter.name.text);
       } else {
-        throw new Error('Static expressions does not support spread');
+        return requiresRuntimeResult('Static expressions does not support spread', expr);
       }
     }
 
@@ -196,7 +196,7 @@ export function evaluate(
     }
     let symbol = typeChecker.getSymbolAtLocation(expr);
     if (!symbol) {
-      throw new Error(`Unable to resolve identifier '${expr.text}'`);
+      return requiresRuntimeResult(`Unable to resolve identifier '${expr.text}'`, expr);
     }
     if (!symbol.valueDeclaration) {
       symbol = resolveImportSymbol(expr.text, symbol, typeChecker);
@@ -222,7 +222,7 @@ export function evaluate(
     if (ts.isEnumDeclaration(symbol.valueDeclaration)) {
       return evaluate(symbol.valueDeclaration, typeChecker, scope);
     }
-    throw new Error('Not implemented:' + expr.text);
+    return requiresRuntimeResult('Not implemented:' + expr.text, expr);
   } else if (ts.isNoSubstitutionTemplateLiteral(expr)) {
     return expr.text;
   } else if (ts.isStringLiteral(expr)) {
@@ -234,7 +234,7 @@ export function evaluate(
   } else if (expr.kind == ts.SyntaxKind.FalseKeyword) {
     return false;
   } else if (ts.isObjectLiteralExpression(expr)) {
-    const obj: Object = {};
+    const obj: any = {};
     for (const property of expr.properties) {
       let propertyName = '';
       if (property.name && ts.isIdentifier(property.name)) {
@@ -275,7 +275,7 @@ export function evaluate(
     }
     return array;
   } else if (ts.isEnumDeclaration(expr)) {
-    const enm: Object = {};
+    const enm: any = {};
     let i = 0;
     for (const member of expr.members) {
       let memberName: string;
@@ -288,7 +288,7 @@ export function evaluate(
         }
         memberName = value.toString();
       } else {
-        throw new Error('Unsupported enum declaration');
+        return requiresRuntimeResult('Unsupported enum declaration', expr);
       }
       if (!member.initializer) {
         enm[memberName] = i;
@@ -304,7 +304,7 @@ export function evaluate(
     }
     return enm;
   }
-  throw new Error('Unable to evaluate expression, unsupported expression token kind: ' + expr.kind);
+  return requiresRuntimeResult('Unable to evaluate expression, unsupported expression token kind: ' + expr.kind, expr);
 }
 
 function resolveImportSymbol(variableName: string, symbol: ts.Symbol, typeChecker: ts.TypeChecker) {
@@ -361,7 +361,7 @@ export type RequiresRuntimeResult = {
   getDiagnostics(): undefined | { line: number; source: string; file: string };
 };
 
-function requiresRuntimeResult(message: string, node?: ts.Node): RequiresRuntimeResult {
+export function requiresRuntimeResult(message: string, node?: ts.Node): RequiresRuntimeResult {
   return {
     __requiresRuntime: true,
     message,

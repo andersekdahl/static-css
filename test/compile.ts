@@ -34,11 +34,9 @@ styled.Div = (props: any) => null;
       return undefined;
     },
     readFile(fileName: string) {
-      console.log('readFile', fileName);
       return fileName;
     },
     fileExists(fileName: string) {
-      console.log('fileExists', fileName);
       return true;
     },
     getDefaultLibFileName(options: ts.CompilerOptions) {

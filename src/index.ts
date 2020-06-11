@@ -1,5 +1,5 @@
 import * as ts from 'typescript';
-import { evaluate, RequiresRuntimeResult, isRequiresRuntimeResult } from './evaluator';
+import { evaluate, requiresRuntimeResult, isRequiresRuntimeResult } from './evaluator';
 
 export const generatedClassNames: { [cssRule: string]: string } = {};
 
@@ -22,9 +22,14 @@ type StaticStyledComponents = { [name: string]: StaticStyledComponent };
 
 export default function transformer(program: ts.Program): ts.TransformerFactory<ts.SourceFile> {
   return (context: ts.TransformationContext) => (file: ts.SourceFile) => {
-    const staticStyledComponent: StaticStyledComponents = {};
-    const firstPassTransformedFile = visitNodeAndChildren(file, program, context, staticStyledComponent);
-    return visitNodeAndChildren(firstPassTransformedFile, program, context, staticStyledComponent);
+    if (file.fileName.endsWith('.tsx')) {
+      const staticStyledComponent: StaticStyledComponents = {};
+      // TODO: Maybe only run the first pass on top level statements?
+      const firstPassTransformedFile = visitNodeAndChildren(file, program, context, staticStyledComponent);
+      return visitNodeAndChildren(firstPassTransformedFile, program, context, staticStyledComponent);
+    } else {
+      return file;
+    }
   };
 }
 
@@ -143,13 +148,16 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
       const cssData = getCssData(cssJsxAttr.initializer.expression, typeChecker);
       if (!isRequiresRuntimeResult(cssData)) {
         const classNames = cssData.classNames;
-        return ts.createJsxSelfClosingElement(
+        const jsxElement = ts.createJsxSelfClosingElement(
           ts.createIdentifier(elementName),
           undefined,
           ts.createJsxAttributes([
+            ...passThroughProps(node.attributes.properties),
             ts.createJsxAttribute(ts.createIdentifier('className'), ts.createStringLiteral(classNames.join(' '))),
           ]),
         );
+        ts.setOriginalNode(jsxElement, node);
+        return jsxElement;
       }
     }
   }
@@ -176,17 +184,20 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
         const cssData = getCssData(cssJsxAttr.initializer.expression, typeChecker);
         if (!isRequiresRuntimeResult(cssData)) {
           const classNames = cssData.classNames;
-          return ts.createJsxElement(
+          const jsxElement = ts.createJsxElement(
             ts.createJsxOpeningElement(
               ts.createIdentifier(elementName),
               undefined,
               ts.createJsxAttributes([
+                ...passThroughProps(node.openingElement.attributes.properties),
                 ts.createJsxAttribute(ts.createIdentifier('className'), ts.createStringLiteral(classNames.join(' '))),
               ]),
             ),
             node.children,
             ts.createJsxClosingElement(ts.createIdentifier(elementName)),
           );
+          ts.setOriginalNode(jsxElement, node);
+          return jsxElement;
         }
       }
     }
@@ -194,11 +205,12 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
     if (ts.isIdentifier(openingElement.tagName) && ts.isIdentifier(openingElement.tagName)) {
       const jsxTagName = openingElement.tagName.escapedText.toString();
       if (staticStyledComponent[jsxTagName]) {
-        return ts.createJsxElement(
+        const jsxElement = ts.createJsxElement(
           ts.createJsxOpeningElement(
             ts.createIdentifier(staticStyledComponent[jsxTagName].elementName),
             undefined,
             ts.createJsxAttributes([
+              ...passThroughProps(node.openingElement.attributes.properties),
               ts.createJsxAttribute(
                 ts.createIdentifier('className'),
                 ts.createStringLiteral(staticStyledComponent[jsxTagName].cssData.classNames.join(' ')),
@@ -208,6 +220,8 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
           node.children,
           ts.createJsxClosingElement(ts.createIdentifier(staticStyledComponent[jsxTagName].elementName)),
         );
+        ts.setOriginalNode(jsxElement, node);
+        return jsxElement;
       }
     }
   }
@@ -215,16 +229,19 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
   if (ts.isJsxSelfClosingElement(node) && ts.isIdentifier(node.tagName)) {
     const jsxTagName = node.tagName.escapedText.toString();
     if (staticStyledComponent[jsxTagName]) {
-      return ts.createJsxSelfClosingElement(
+      const jsxElement = ts.createJsxSelfClosingElement(
         ts.createIdentifier(staticStyledComponent[jsxTagName].elementName),
         undefined,
         ts.createJsxAttributes([
+          ...passThroughProps(node.attributes.properties),
           ts.createJsxAttribute(
             ts.createIdentifier('className'),
             ts.createStringLiteral(staticStyledComponent[jsxTagName].cssData.classNames.join(' ')),
           ),
         ]),
       );
+      ts.setOriginalNode(jsxElement, node);
+      return jsxElement;
     }
   }
 
@@ -239,24 +256,32 @@ function getCssData(
   const classNames: string[] = [];
   const cssRules = {};
 
-  const obj = evaluate(styleObject, typeChecker, {}) as Object;
+  const obj = evaluate(styleObject, typeChecker, {}) as any;
   if (isRequiresRuntimeResult(obj)) {
+    const diag = obj.getDiagnostics();
     return obj;
   }
 
   if (parentComponent) {
-    const parentObj = evaluate(parentComponent.cssData.styleObject, typeChecker, {}) as Object;
+    const parentObj = evaluate(parentComponent.cssData.styleObject, typeChecker, {}) as any;
     if (isRequiresRuntimeResult(parentObj)) {
+      const diag = obj.getDiagnostics();
       return parentObj;
     }
     for (const key of Object.keys(parentObj)) {
       if (!(key in obj)) {
+        if (typeof parentObj[key] === 'function') {
+          return requiresRuntimeResult('Styled properties as functions needs to be resolved at runtime', styleObject);
+        }
         obj[key] = parentObj[key];
       }
     }
   }
 
   for (const key of Object.keys(obj)) {
+    if (typeof obj[key] === 'function') {
+      return requiresRuntimeResult('Styled properties as functions needs to be resolved at runtime', styleObject);
+    }
     const css = `${key}: '${obj[key]}'`;
     if (!(css in generatedClassNames)) {
       generatedClassNames[css] = 'a' + Object.keys(generatedClassNames).length;
@@ -269,4 +294,13 @@ function getCssData(
     cssRules,
     styleObject,
   };
+}
+
+function passThroughProps(props: ts.NodeArray<ts.JsxAttributeLike>) {
+  return props.filter((p) => {
+    if (p.name && ts.isIdentifier(p.name)) {
+      return p.name.text !== 'css';
+    }
+    return true;
+  });
 }
