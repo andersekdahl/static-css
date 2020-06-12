@@ -1,4 +1,5 @@
 import * as ts from 'typescript';
+import { isStaticStyleObject } from './static-glitz';
 import { evaluate, requiresRuntimeResult, isRequiresRuntimeResult } from './evaluator';
 
 export const generatedClassNames: { [mediaQuery: string]: { [cssRule: string]: string } } = { '': {} };
@@ -13,9 +14,11 @@ type StaticStyledComponent = {
   parent?: StaticStyledComponent;
 };
 
+type StyleObject = ts.ObjectLiteralExpression | { [rule: string]: any };
+
 type CssData = {
   classNames: string[];
-  styleObject: ts.ObjectLiteralExpression;
+  styleObject: StyleObject;
 };
 
 type StaticStyledComponents = { [name: string]: StaticStyledComponent };
@@ -129,7 +132,27 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
             componentName[1] === componentName[1].toLowerCase()
           ) {
             const obj = evaluate(declaration.initializer, typeChecker, {});
-            console.log('hehe', obj);
+            if (!isRequiresRuntimeResult(obj)) {
+              if (isStaticStyleObject(obj) && obj.elementName) {
+                const classNames = [];
+                const styleObject: { [rule: string]: any } = {};
+                for (const styleObj of obj.styleObjects) {
+                  classNames.push(...getClassNames(styleObj));
+                  Object.assign(styleObject, styleObj);
+                }
+                staticStyledComponent[componentName] = {
+                  componentName,
+                  elementName: obj.elementName,
+                  cssData: {
+                    classNames,
+                    styleObject,
+                  },
+                };
+                return [];
+              }
+            } else {
+              console.log(obj.message, obj.node?.getText());
+            }
           }
         }
       }
@@ -262,16 +285,13 @@ function getCssData(
   typeChecker: ts.TypeChecker,
   parentComponent?: StaticStyledComponent,
 ) {
-  const classNames: string[] = [];
-  const cssRules = {};
-
   const obj = evaluate(styleObject, typeChecker, {}) as any;
   if (isRequiresRuntimeResult(obj)) {
     return obj;
   }
 
   if (parentComponent) {
-    const parentObj = evaluate(parentComponent.cssData.styleObject, typeChecker, {}) as any;
+    const parentObj = evaluateIfNeeded(parentComponent.cssData.styleObject, typeChecker, {}) as any;
     if (isRequiresRuntimeResult(parentObj)) {
       const diag = obj.getDiagnostics();
       return parentObj;
@@ -291,6 +311,17 @@ function getCssData(
       return requiresRuntimeResult('Styled properties as functions needs to be resolved at runtime', styleObject);
     }
   }
+
+  const classNames = getClassNames(obj);
+
+  return {
+    classNames,
+    styleObject,
+  };
+}
+
+function getClassNames(obj: { [rule: string]: any }) {
+  const classNames = [];
   for (const key of Object.keys(obj)) {
     if (typeof obj[key] === 'object') {
       const mediaQuery = key;
@@ -313,12 +344,15 @@ function getCssData(
       classNames.push(generatedClassNames[''][css]);
     }
   }
+  return classNames;
+}
 
-  return {
-    classNames,
-    cssRules,
-    styleObject,
-  };
+function evaluateIfNeeded(styleObject: StyleObject, typeChecker: ts.TypeChecker, scope: { [name: string]: any }) {
+  const expression = styleObject as ts.Expression;
+  if (expression.kind && ts.isObjectLiteralExpression(expression)) {
+    return evaluate(expression, typeChecker, scope);
+  }
+  return styleObject as { [rule: string]: any };
 }
 
 function passThroughProps(props: ts.NodeArray<ts.JsxAttributeLike>) {

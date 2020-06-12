@@ -12,6 +12,18 @@ export function evaluate(
   scope['Boolean'] = Boolean;
   scope['RegExp'] = RegExp;
   if (ts.isBinaryExpression(expr)) {
+    if (expr.operatorToken.kind == ts.SyntaxKind.AmpersandAmpersandToken) {
+      const left = evaluate(expr.left, typeChecker, scope);
+      if (isRequiresRuntimeResult(left)) {
+        return left;
+      }
+      if (!left) {
+        return left;
+      }
+
+      return evaluate(expr.right, typeChecker, scope);
+    }
+
     const left = evaluate(expr.left, typeChecker, scope);
     if (isRequiresRuntimeResult(left)) {
       return left;
@@ -48,8 +60,6 @@ export function evaluate(
       return left <= right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.BarBarToken) {
       return left || right;
-    } else if (expr.operatorToken.kind == ts.SyntaxKind.AmpersandAmpersandToken) {
-      return left && right;
     } else if (expr.operatorToken.kind == ts.SyntaxKind.QuestionQuestionToken) {
       if (left !== undefined && left !== null) {
         return left;
@@ -62,6 +72,9 @@ export function evaluate(
       if (typeof right === 'object' && right instanceof Array) {
         return right.indexOf(left) !== -1;
       }
+      if (typeof right === 'object' || typeof right === 'function') {
+        return left in right;
+      }
       return false;
     }
   } else if (ts.isParenthesizedExpression(expr)) {
@@ -71,19 +84,7 @@ export function evaluate(
     if (isRequiresRuntimeResult(condition)) {
       return condition;
     }
-    const whenTrue = evaluate(expr.whenTrue, typeChecker, scope);
-    if (isRequiresRuntimeResult(whenTrue)) {
-      return whenTrue;
-    }
-    if (condition) {
-      return whenTrue;
-    }
-
-    const whenFalse = evaluate(expr.whenFalse, typeChecker, scope);
-    if (isRequiresRuntimeResult(whenFalse)) {
-      return whenFalse;
-    }
-    return whenFalse;
+    return condition ? evaluate(expr.whenTrue, typeChecker, scope) : evaluate(expr.whenFalse, typeChecker, scope);
   } else if (ts.isPrefixUnaryExpression(expr)) {
     if (expr.operator == ts.SyntaxKind.PlusPlusToken || expr.operator == ts.SyntaxKind.MinusMinusToken) {
       return requiresRuntimeResult('-- or ++ expressions are not supported', expr);
@@ -142,10 +143,8 @@ export function evaluate(
     return s;
   } else if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr) || ts.isFunctionDeclaration(expr)) {
     let bodyExpression: ts.Expression | undefined;
-    let functionScope = scope;
     if (expr.body) {
       if (ts.isBlock(expr.body)) {
-        functionScope = evaluateVariableDeclarations(expr.body, typeChecker, functionScope);
         const returnStatement = expr.body.statements.find((s) => ts.isReturnStatement(s)) as
           | ts.ReturnStatement
           | undefined;
@@ -170,7 +169,7 @@ export function evaluate(
         return undefined;
       }
 
-      const parameterScope: { [argName: string]: any } = { ...functionScope };
+      const parameterScope: { [argName: string]: any } = { ...scope };
       for (let i = 0; i < parameters.length; i++) {
         if (parameters[i].isDotDotDot) {
           parameterScope[parameters[i].name] = args.slice(i);
@@ -214,9 +213,18 @@ export function evaluate(
       }
     }
     return callable.apply(callableContext, args);
+  } else if (ts.isTypeOfExpression(expr)) {
+    const value = evaluate(expr.expression, typeChecker, scope);
+    if (isRequiresRuntimeResult(value)) {
+      return value;
+    }
+    return typeof value;
   } else if (ts.isIdentifier(expr)) {
     if (expr.text in scope) {
       return scope[expr.text];
+    }
+    if (expr.text === 'undefined') {
+      return undefined;
     }
 
     const type = typeChecker.getTypeAtLocation(expr);
@@ -251,7 +259,7 @@ export function evaluate(
     if (ts.isEnumDeclaration(symbol.valueDeclaration)) {
       return evaluate(symbol.valueDeclaration, typeChecker, scope);
     }
-    return requiresRuntimeResult('Not implemented:' + expr.text, expr);
+    return requiresRuntimeResult('Not implemented: ' + expr.text + ', ' + expr.kind, expr);
   } else if (ts.isNoSubstitutionTemplateLiteral(expr)) {
     return expr.text;
   } else if (ts.isStringLiteral(expr)) {
@@ -264,6 +272,8 @@ export function evaluate(
     return false;
   } else if (expr.kind == ts.SyntaxKind.NullKeyword) {
     return null;
+  } else if (expr.kind == ts.SyntaxKind.UndefinedKeyword) {
+    return undefined;
   } else if (ts.isObjectLiteralExpression(expr)) {
     const obj: any = {};
     for (const property of expr.properties) {
@@ -363,7 +373,7 @@ export function evaluate(
 function resolveImportSymbol(variableName: string, symbol: ts.Symbol, typeChecker: ts.TypeChecker) {
   if (!symbol.valueDeclaration) {
     const importSpecifier = symbol.declarations[0];
-    if (ts.isImportSpecifier(importSpecifier)) {
+    if (importSpecifier && ts.isImportSpecifier(importSpecifier)) {
       const importSymbol = typeChecker.getSymbolAtLocation(importSpecifier.parent.parent.parent.moduleSpecifier);
       if (importSymbol) {
         const exports = typeChecker.getExportsOfModule(importSymbol);

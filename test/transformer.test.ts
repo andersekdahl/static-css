@@ -77,7 +77,7 @@ function MyComponent(props) {
   expectEqual(expected, compile(code));
 });
 
-/*test('correctly handles media queries', () => {
+test('correctly handles media queries', () => {
   const code = {
     'file1.tsx': `
 import { styled } from '@glitz/react';
@@ -91,10 +91,10 @@ const Styled = styled.div({
     background: '#000',
 });
 
-function createCompactStyled(compactStyle, style) {
+function createCompactStyled(compactStyle: Object, style: Object) {
   return styled(compactStyle)({ '@media (min-width: 768px)': style });
 }
-const MediaComp = createCompactStyled({ margin: 10 }, { margin: 20 })(styled.Div);
+const MediaComp = createCompactStyled({ margin: '10px' }, { margin: '20px' })(styled.Div);
 
 function largeScreen() {
   return '@media (min-width: 768px)';
@@ -109,7 +109,7 @@ function smallScreen() {
     'file1.jsx': `
 import { styled } from '@glitz/react';
 function MyComponent(props) {
-    return <><div className="m10 m11 m20 m21 a0">hello</div><div className="" /></>;
+    return <><div className="m10 m11 m20 m21 a0">hello</div><div className="a1 m12"/></>;
 }
 function createCompactStyled(compactStyle, style) {
     return styled(compactStyle)({ '@media (min-width: 768px)': style });
@@ -123,9 +123,11 @@ function smallScreen() {
 `,
     'style.css': `
 .a0 { background: '#000' }
+.a1 { margin: '10px' }
 @media (min-width: 768px) {
   .m10 { width: '50%' }
   .m11 { height: '50%' }
+  .m12 { margin: '20px' }
 }
 @media (max-width: 768px) {
   .m20 { width: '100%' }
@@ -135,7 +137,7 @@ function smallScreen() {
   };
 
   expectEqual(expected, compile(code));
-});*/
+});
 
 test('can use an inline component', () => {
   const code = {

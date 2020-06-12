@@ -83,7 +83,15 @@ export default function compile(files: { [fileName: string]: string }) {
   const { emitSkipped, diagnostics } = program.emit(undefined, writeFileCallback, undefined, false, transformers);
 
   if (emitSkipped) {
-    throw new Error(diagnostics.map((diagnostic) => diagnostic.messageText).join('\n'));
+    for (const diagnostic of diagnostics) {
+      if (typeof diagnostic.messageText === 'string') {
+        console.error(diagnostic.messageText);
+      } else {
+        console.error(diagnostic.messageText.messageText);
+      }
+      console.error(diagnostic.file?.getText().substr(diagnostic.start!, diagnostic.length));
+    }
+    throw new Error('Compilation failed');
   }
 
   let css = '';
