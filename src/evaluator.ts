@@ -201,6 +201,9 @@ export function evaluate(
     const args = [];
     for (const arg of expr.arguments) {
       const value = evaluate(arg, typeChecker, scope);
+      if (isRequiresRuntimeResult(value)) {
+        return value;
+      }
       if (ts.isSpreadElement(arg)) {
         if (!Array.isArray(value)) {
           return requiresRuntimeResult('Spread value could not be statically determined to be an array', arg);

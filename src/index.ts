@@ -150,8 +150,6 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
                 };
                 return [];
               }
-            } else {
-              console.log(obj.message, obj.node?.getText());
             }
           }
         }
