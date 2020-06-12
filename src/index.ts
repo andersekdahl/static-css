@@ -24,8 +24,11 @@ export default function transformer(program: ts.Program): ts.TransformerFactory<
   return (context: ts.TransformationContext) => (file: ts.SourceFile) => {
     if (file.fileName.endsWith('.tsx')) {
       const staticStyledComponent: StaticStyledComponents = {};
-      // TODO: Maybe only run the first pass on top level statements?
-      const firstPassTransformedFile = visitNodeAndChildren(file, program, context, staticStyledComponent);
+      const firstPassTransformedFile = ts.visitEachChild(
+        file,
+        (node) => visitNode(node, program, staticStyledComponent),
+        context,
+      );
       return visitNodeAndChildren(firstPassTransformedFile, program, context, staticStyledComponent);
     } else {
       return file;
@@ -72,55 +75,61 @@ function visitNode(node: ts.Node, program: ts.Program, staticStyledComponent: St
   if (ts.isVariableStatement(node)) {
     if (node.declarationList.declarations.length === 1) {
       const declaration = node.declarationList.declarations[0];
-      if (
-        declaration.initializer &&
-        ts.isCallExpression(declaration.initializer) &&
-        ts.isIdentifier(declaration.name)
-      ) {
-        const callExpr = declaration.initializer;
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) {
         const componentName = declaration.name.escapedText.toString();
+        if (ts.isCallExpression(declaration.initializer) && ts.isIdentifier(declaration.name)) {
+          const callExpr = declaration.initializer;
 
-        if (ts.isPropertyAccessExpression(callExpr.expression) && ts.isIdentifier(callExpr.expression.expression)) {
-          if (callExpr.expression.expression.escapedText === styledName) {
-            const elementName = callExpr.expression.name.escapedText.toString();
-            const styleObject = callExpr.arguments[0];
-            if (callExpr.arguments.length === 1 && !!styleObject && ts.isObjectLiteralExpression(styleObject)) {
-              const cssData = getCssData(styleObject, typeChecker);
-              if (!isRequiresRuntimeResult(cssData)) {
-                staticStyledComponent[componentName] = {
-                  componentName,
-                  elementName,
-                  cssData,
-                };
-                return [];
-              }
-            }
-          }
-        }
-        if (
-          ts.isIdentifier(callExpr.expression) &&
-          callExpr.expression.escapedText.toString() === styledName &&
-          callExpr.arguments.length === 2
-        ) {
-          const parentStyledComponent = callExpr.arguments[0];
-          const styleObject = callExpr.arguments[1];
-
-          if (ts.isIdentifier(parentStyledComponent) && ts.isObjectLiteralExpression(styleObject)) {
-            const parentName = parentStyledComponent.escapedText.toString();
-            const parent = staticStyledComponent[parentName];
-            if (parent) {
-              const cssData = getCssData(styleObject, typeChecker, parent);
-              if (!isRequiresRuntimeResult(cssData)) {
-                if (staticStyledComponent[parentName]) {
+          if (ts.isPropertyAccessExpression(callExpr.expression) && ts.isIdentifier(callExpr.expression.expression)) {
+            if (callExpr.expression.expression.escapedText === styledName) {
+              const elementName = callExpr.expression.name.escapedText.toString();
+              const styleObject = callExpr.arguments[0];
+              if (callExpr.arguments.length === 1 && !!styleObject && ts.isObjectLiteralExpression(styleObject)) {
+                const cssData = getCssData(styleObject, typeChecker);
+                if (!isRequiresRuntimeResult(cssData)) {
                   staticStyledComponent[componentName] = {
                     componentName,
-                    elementName: staticStyledComponent[parentName].elementName,
+                    elementName,
                     cssData,
                   };
                   return [];
                 }
               }
             }
+          }
+          if (
+            ts.isIdentifier(callExpr.expression) &&
+            callExpr.expression.escapedText.toString() === styledName &&
+            callExpr.arguments.length === 2
+          ) {
+            const parentStyledComponent = callExpr.arguments[0];
+            const styleObject = callExpr.arguments[1];
+
+            if (ts.isIdentifier(parentStyledComponent) && ts.isObjectLiteralExpression(styleObject)) {
+              const parentName = parentStyledComponent.escapedText.toString();
+              const parent = staticStyledComponent[parentName];
+              if (parent) {
+                const cssData = getCssData(styleObject, typeChecker, parent);
+                if (!isRequiresRuntimeResult(cssData)) {
+                  if (staticStyledComponent[parentName]) {
+                    staticStyledComponent[componentName] = {
+                      componentName,
+                      elementName: staticStyledComponent[parentName].elementName,
+                      cssData,
+                    };
+                    return [];
+                  }
+                }
+              }
+            }
+          }
+          if (
+            componentName.length > 1 &&
+            componentName[0] === componentName[0].toUpperCase() &&
+            componentName[1] === componentName[1].toLowerCase()
+          ) {
+            const obj = evaluate(declaration.initializer, typeChecker, {});
+            console.log('hehe', obj);
           }
         }
       }
@@ -258,7 +267,6 @@ function getCssData(
 
   const obj = evaluate(styleObject, typeChecker, {}) as any;
   if (isRequiresRuntimeResult(obj)) {
-    const diag = obj.getDiagnostics();
     return obj;
   }
 

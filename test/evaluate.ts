@@ -38,6 +38,7 @@ export default function(expression: string, files: { [fileName: string]: string 
   const compilerOptions: ts.CompilerOptions = {
     noEmitOnError: true,
     target: ts.ScriptTarget.Latest,
+    lib: ['es2018', 'dom'],
     jsx: ts.JsxEmit.Preserve,
   };
 
@@ -46,10 +47,19 @@ export default function(expression: string, files: { [fileName: string]: string 
       if (filename in files) {
         return ts.createSourceFile(filename, files[filename], ts.ScriptTarget.Latest);
       }
-      if (filename.indexOf('.d.ts') !== -1) {
+      const libPath = path.join(__dirname, '..', 'node_modules', 'typescript', 'lib');
+      if (filename.indexOf('.d.ts') !== -1 && fs.existsSync(path.join(libPath, filename))) {
         return ts.createSourceFile(
           filename,
-          fs.readFileSync(path.join(__dirname, '..', 'node_modules', 'typescript', 'lib', filename)).toString(),
+          fs.readFileSync(path.join(libPath, filename)).toString(),
+          ts.ScriptTarget.Latest,
+        );
+      }
+      const possibleLibFile = 'lib.' + filename.replace('.ts', '') + '.d.ts';
+      if (fs.existsSync(path.join(libPath, possibleLibFile))) {
+        return ts.createSourceFile(
+          possibleLibFile,
+          fs.readFileSync(path.join(libPath, possibleLibFile)).toString(),
           ts.ScriptTarget.Latest,
         );
       }

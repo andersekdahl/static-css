@@ -145,6 +145,77 @@ const y = twoHundred;
   expect(evaluate('theCalculator(x, y)', code)).toBe(100 + 200 + 1);
 });
 
+test('can use JS globals', () => {
+  const code = {
+    'entry.ts': `
+const res = {
+  x: String(1),
+  z: Boolean('true'),
+  u: Number('123'),
+  y: Object.assign({x: 1}, {y: 2}),
+}
+`.trim(),
+  };
+  expect(evaluate('res', code)).toMatchObject({
+    x: '1',
+    z: true,
+    u: 123,
+    y: { x: 1, y: 2 },
+  });
+});
+
+test('can inject variables', () => {
+  const code = {
+    'entry.ts': `
+const y = window.innerHeight + 100;
+`,
+  };
+  expect(evaluate('y', code, { window: { innerHeight: 100 } })).toBe(200);
+});
+
+test('can use rest args', () => {
+  const code = {
+    'entry.ts': `
+const y = (...args: any[]) => args.join(', ');
+const x = (arg1: any, ...args: any[]) => arg1 + ': ' + args.join(', ');
+const z = y(1, 2, 3) + ', ' + x(1, 2, 3);
+`,
+  };
+  expect(evaluate('z', code)).toBe('1, 2, 3, 1: 2, 3');
+});
+
+test('can use spread', () => {
+  const code = {
+    'entry.ts': `
+const y = [1, ...[2, 3]];
+const x = (...args: any[]) => args.join(', ');
+const z = x(...y);
+`,
+  };
+  expect(evaluate('z', code)).toBe('1, 2, 3');
+});
+
+test('can have functions with variables', () => {
+  const code = {
+    'entry.ts': `
+const y = () => {
+  const local = 1;
+  return local + 1;
+};
+
+const x = () => {
+  const local = 1;
+  const localFunc = () => {
+    const z = 1;
+    return z + local;
+  };
+  return local + localFunc();
+};
+`,
+  };
+  expect(evaluate('y() + x()', code)).toBe(2 + 3);
+});
+
 test('values that are unknown at compile time gets reported correctly', () => {
   const code = {
     'entry.ts': `

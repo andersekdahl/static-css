@@ -5,6 +5,12 @@ export function evaluate(
   typeChecker: ts.TypeChecker,
   scope: { [name: string]: any },
 ): any {
+  scope['Array'] = Array;
+  scope['Object'] = Object;
+  scope['String'] = String;
+  scope['Number'] = Number;
+  scope['Boolean'] = Boolean;
+  scope['RegExp'] = RegExp;
   if (ts.isBinaryExpression(expr)) {
     const left = evaluate(expr.left, typeChecker, scope);
     if (isRequiresRuntimeResult(left)) {
@@ -136,28 +142,24 @@ export function evaluate(
     return s;
   } else if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr) || ts.isFunctionDeclaration(expr)) {
     let bodyExpression: ts.Expression | undefined;
+    let functionScope = scope;
     if (expr.body) {
       if (ts.isBlock(expr.body)) {
-        if (expr.body.statements.length > 1) {
-          return requiresRuntimeResult('Cannot evaluate functions with more than one statement', expr);
-        }
-        const statement = expr.body.statements[0];
-        if (ts.isReturnStatement(statement)) {
-          bodyExpression = statement.expression;
-        } else {
-          return requiresRuntimeResult(
-            'Cannot evaluate functions where the single statement is not a return statement',
-            expr,
-          );
+        functionScope = evaluateVariableDeclarations(expr.body, typeChecker, functionScope);
+        const returnStatement = expr.body.statements.find((s) => ts.isReturnStatement(s)) as
+          | ts.ReturnStatement
+          | undefined;
+        if (returnStatement) {
+          bodyExpression = returnStatement.expression;
         }
       } else {
         bodyExpression = expr.body;
       }
     }
-    const parameters: string[] = [];
+    const parameters: Array<{ name: string; isDotDotDot: boolean }> = [];
     for (const parameter of expr.parameters) {
       if (ts.isIdentifier(parameter.name)) {
-        parameters.push(parameter.name.text);
+        parameters.push({ name: parameter.name.text, isDotDotDot: !!parameter.dotDotDotToken });
       } else {
         return requiresRuntimeResult('Static expressions does not support spread', expr);
       }
@@ -168,23 +170,50 @@ export function evaluate(
         return undefined;
       }
 
-      const parameterScope: { [argName: string]: any } = { ...scope };
+      const parameterScope: { [argName: string]: any } = { ...functionScope };
       for (let i = 0; i < parameters.length; i++) {
-        parameterScope[parameters[i]] = args[i];
+        if (parameters[i].isDotDotDot) {
+          parameterScope[parameters[i].name] = args.slice(i);
+        } else {
+          parameterScope[parameters[i].name] = args[i];
+        }
       }
       return evaluate(bodyExpression, typeChecker, parameterScope);
     };
   } else if (ts.isCallExpression(expr)) {
-    const callable = evaluate(expr.expression, typeChecker, scope) as Function;
+    let callable: Function;
+    let callableContext: any = null;
+    if (ts.isPropertyAccessExpression(expr.expression)) {
+      callableContext = evaluate(expr.expression.expression, typeChecker, scope);
+      if (isRequiresRuntimeResult(callableContext)) {
+        return callableContext;
+      }
+      const name = expr.expression.name.text;
+      callable = callableContext[name];
+    } else {
+      callable = evaluate(expr.expression, typeChecker, scope) as Function;
+    }
     if (isRequiresRuntimeResult(callable)) {
       return callable;
+    }
+    if (typeof callable !== 'function') {
+      return requiresRuntimeResult(`Unable to evaluate ${expr.expression.getText()} to a function`, expr.expression);
     }
     const args = [];
     for (const arg of expr.arguments) {
       const value = evaluate(arg, typeChecker, scope);
-      args.push(value);
+      if (ts.isSpreadElement(arg)) {
+        if (!Array.isArray(value)) {
+          return requiresRuntimeResult('Spread value could not be statically determined to be an array', arg);
+        }
+        for (const el of value) {
+          args.push(el);
+        }
+      } else {
+        args.push(value);
+      }
     }
-    return callable.apply(null, args);
+    return callable.apply(callableContext, args);
   } else if (ts.isIdentifier(expr)) {
     if (expr.text in scope) {
       return scope[expr.text];
@@ -233,35 +262,48 @@ export function evaluate(
     return true;
   } else if (expr.kind == ts.SyntaxKind.FalseKeyword) {
     return false;
+  } else if (expr.kind == ts.SyntaxKind.NullKeyword) {
+    return null;
   } else if (ts.isObjectLiteralExpression(expr)) {
     const obj: any = {};
     for (const property of expr.properties) {
-      let propertyName = '';
-      if (property.name && ts.isIdentifier(property.name)) {
-        propertyName = property.name.text;
-      }
-      if (property.name && ts.isComputedPropertyName(property.name)) {
-        const value = evaluate(property.name.expression, typeChecker, scope);
-        if (isRequiresRuntimeResult(value)) {
-          return value;
+      if (ts.isSpreadAssignment(property)) {
+        const spreadObject = evaluate(property.expression, typeChecker, scope);
+        if (isRequiresRuntimeResult(spreadObject)) {
+          return spreadObject;
         }
-        propertyName = value.toString();
-      }
-      let value: any = undefined;
-      if (ts.isPropertyAssignment(property)) {
-        value = evaluate(property.initializer, typeChecker, scope);
-        if (isRequiresRuntimeResult(value)) {
-          return value;
+        Object.assign(obj, spreadObject);
+      } else {
+        let propertyName = '';
+        if (property.name && ts.isIdentifier(property.name)) {
+          propertyName = property.name.text;
         }
-      }
-      if (ts.isShorthandPropertyAssignment(property)) {
-        value = evaluate(property.name, typeChecker, scope);
-        if (isRequiresRuntimeResult(value)) {
-          return value;
+        if (property.name && ts.isComputedPropertyName(property.name)) {
+          const value = evaluate(property.name.expression, typeChecker, scope);
+          if (isRequiresRuntimeResult(value)) {
+            return value;
+          }
+          propertyName = value.toString();
         }
-      }
+        if (property.name && ts.isStringLiteral(property.name)) {
+          propertyName = property.name.text;
+        }
+        let value: any = undefined;
+        if (ts.isPropertyAssignment(property)) {
+          value = evaluate(property.initializer, typeChecker, scope);
+          if (isRequiresRuntimeResult(value)) {
+            return value;
+          }
+        }
+        if (ts.isShorthandPropertyAssignment(property)) {
+          value = evaluate(property.name, typeChecker, scope);
+          if (isRequiresRuntimeResult(value)) {
+            return value;
+          }
+        }
 
-      obj[propertyName] = value;
+        obj[propertyName] = value;
+      }
     }
     return obj;
   } else if (ts.isArrayLiteralExpression(expr)) {
@@ -271,7 +313,16 @@ export function evaluate(
       if (isRequiresRuntimeResult(value)) {
         return value;
       }
-      array.push(value);
+      if (ts.isSpreadElement(element)) {
+        if (!Array.isArray(value)) {
+          return requiresRuntimeResult('Spread value could not be statically determined to be an array', element);
+        }
+        for (const el of value) {
+          array.push(el);
+        }
+      } else {
+        array.push(value);
+      }
     }
     return array;
   } else if (ts.isEnumDeclaration(expr)) {
@@ -303,6 +354,8 @@ export function evaluate(
       i++;
     }
     return enm;
+  } else if (ts.isSpreadElement(expr)) {
+    return evaluate(expr.expression, typeChecker, scope);
   }
   return requiresRuntimeResult('Unable to evaluate expression, unsupported expression token kind: ' + expr.kind, expr);
 }
@@ -390,4 +443,31 @@ export function isRequiresRuntimeResult(o: unknown): o is RequiresRuntimeResult 
   }
   const res = o as RequiresRuntimeResult;
   return res.__requiresRuntime === true;
+}
+
+function evaluateVariableDeclarations(
+  body: ts.FunctionBody,
+  typeChecker: ts.TypeChecker,
+  scope: { [name: string]: any },
+) {
+  const localScope: { [name: string]: any } = Object.assign({}, scope);
+  for (const stmt of body.statements) {
+    if (ts.isVariableStatement(stmt)) {
+      for (const decl of stmt.declarationList.declarations) {
+        if (ts.isIdentifier(decl.name)) {
+          let value: any = undefined;
+          if (decl.initializer) {
+            value = evaluate(decl.initializer, typeChecker, localScope);
+            if (isRequiresRuntimeResult(value)) {
+              return value;
+            }
+          }
+          localScope[decl.name.text] = value;
+        }
+      }
+    } else if (ts.isFunctionDeclaration(stmt)) {
+      // TODO
+    }
+  }
+  return localScope;
 }
